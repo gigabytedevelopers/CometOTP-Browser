@@ -1,0 +1,5 @@
+# The project's owners. GitHub asks them to review every pull request (never the author), but the
+# ruleset only needs one approving review from someone with write access. That review comes from
+# @princesseke, who is asked on every pull request by .github/workflows/request-review.yml, because
+# an owner cannot approve their own pull request.
+*       @gigabytedevelopersinc @enwokoma
