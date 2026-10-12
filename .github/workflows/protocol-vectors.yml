@@ -1,0 +1,45 @@
+name: Protocol vectors
+
+# Checks the protocol's test vectors (docs/protocol.md, "Test vectors") on every pull request and
+# on main: regenerating them must not change a byte, and an independent implementation using the
+# Java crypto APIs that CometOTP for Android uses must reproduce every value.
+#
+# It uses the Node and JDK already on the runner, so no third-party action runs here.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: protocol-vectors-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  vectors:
+    name: Protocol vectors
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Reject incident indicators before running repository code
+        run: python3 .github/scripts/check_repository_security.py
+
+      - name: Show the tool versions
+        run: |
+          node --version
+          java --version
+
+      - name: Regenerate the vectors; they must not change
+        run: |
+          node vectors/generate.mjs
+          git diff --exit-code -- vectors/v1.json
+
+      - name: Recompute them with the Java crypto APIs
+        run: java vectors/check-jvm/CheckVectors.java vectors/v1.json
