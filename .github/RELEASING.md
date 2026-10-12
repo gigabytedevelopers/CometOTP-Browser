@@ -63,6 +63,11 @@ a commit that is not that head, or the head of a pull request that targets anoth
 that changes the commits gives the pull request a new head, which needs its checks and a fresh
 approval before the push goes through.
 
+GitHub counts such a push as a rebase merge, so the ruleset's allowed merge methods must include
+**rebase**; with squash alone it answers "merges must occur on the web". Allowing rebase does not
+open the web's **Rebase and merge** button: its rewritten commits carry no signature, which the
+signed-commits rule refuses.
+
 ### Stacked pull requests
 
 A pull request that targets another branch never satisfies `main`'s rule, so a stack cannot be
