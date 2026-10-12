@@ -31,15 +31,38 @@ computer, even when your phone is not with you.
 cannot take back what it already holds. If a computer with the extension is lost or stolen, remove
 it in CometOTP and reset two-factor authentication on the services it had.
 
-## Repository layout (planned)
+## Documentation
+
+- **[Design](docs/design.md):** what is shared, pairing, syncing, the extension's lock, unpairing,
+  the threat model and the plan of pull requests.
+- **[Protocol, version 1](docs/protocol.md):** pairing, the encrypted vault, the codes and the
+  relay's API, precise enough to build any of the three parts from.
+
+## Repository layout
 
 | Path | What it is |
 | --- | --- |
 | `docs/` | The design and the sync protocol. |
 | `vectors/` | Protocol test vectors, shared with CometOTP for Android. |
-| `packages/protocol/` | The protocol in TypeScript, shared by the relay and the extension. |
-| `relay/` | The relay server and its Docker image. |
-| `extension/` | The extension, built for Chromium and for Firefox. |
+| `packages/protocol/` | *To come:* the protocol in TypeScript, shared by the relay and the extension. |
+| `relay/` | *To come:* the relay server and its Docker image. |
+| `extension/` | *To come:* the extension, built for Chromium and for Firefox. |
+
+## Checking the protocol test vectors
+
+Every implementation of the protocol has to reproduce `vectors/v1.json`. Regenerating it (Node 20
+or later) must not change it:
+
+```bash
+node vectors/generate.mjs && git diff --exit-code vectors/v1.json
+```
+
+An independent implementation with the Java crypto APIs CometOTP for Android uses (JDK 17 or later)
+recomputes every value:
+
+```bash
+java vectors/check-jvm/CheckVectors.java vectors/v1.json
+```
 
 ## Contributing
 
