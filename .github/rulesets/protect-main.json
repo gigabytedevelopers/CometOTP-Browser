@@ -46,7 +46,8 @@
         "strict_required_status_checks_policy": true,
         "do_not_enforce_on_create": false,
         "required_status_checks": [
-          { "context": "Repository security" }
+          { "context": "Repository security" },
+          { "context": "Protocol vectors" }
         ]
       }
     }

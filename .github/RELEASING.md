@@ -22,6 +22,7 @@ by an owner instead.
 | Check | Workflow | What it does |
 | --- | --- | --- |
 | Repository security | `repository-security.yml` | Rejects editor tasks that run when a folder opens, disguised payloads and committed credentials, without running any repository code. |
+| Protocol vectors | `protocol-vectors.yml` | Regenerates the protocol test vectors, which must not change, and recomputes them with the Java crypto APIs Android uses. |
 
 If you rename a job, update the matching `context` in the ruleset as well. A required check that
 no longer reports leaves pull requests waiting for it forever.
