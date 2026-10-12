@@ -17,33 +17,30 @@ The owners in `.github/CODEOWNERS` are asked too, but GitHub never lets authors 
 pull requests, so her approval is the one the ruleset counts. A pull request she opens is approved
 by an owner instead.
 
-## Required checks
+## Checks
 
-| Check | Workflow | What it does |
-| --- | --- | --- |
-| Repository security | `repository-security.yml` | Rejects editor tasks that run when a folder opens, disguised payloads and committed credentials, without running any repository code. |
-| Protocol vectors | `protocol-vectors.yml` | Regenerates the protocol test vectors, which must not change, and recomputes them with the Java crypto APIs Android uses. |
+| Check | Workflow | Required | What it does |
+| --- | --- | --- | --- |
+| Repository security | `repository-security.yml` | yes | Rejects editor tasks that run when a folder opens, disguised payloads and committed credentials, without running any repository code. |
+| Protocol vectors | `protocol-vectors.yml` | not yet | Regenerates the protocol test vectors, which must not change, and recomputes them with the Java crypto APIs Android uses. |
 
-If you rename a job, update the matching `context` in the ruleset as well. A required check that
-no longer reports leaves pull requests waiting for it forever.
+Only required checks block a merge. If you rename a required job, update the matching `context` in
+the ruleset as well: a required check that no longer reports leaves pull requests waiting forever.
 
 ## Protecting main
 
-`.github/rulesets/protect-main.json` is the branch ruleset. Import it once:
+`main` is protected by the ruleset **Security: reviewed and signed changes**, and
+`.github/rulesets/protect-main.json` is a copy of it. It requires a pull request with one approval
+of its latest push, dismisses stale approvals, requires review threads to be resolved and the
+required checks to pass on the latest commit, and forbids unsigned commits, force pushes and
+deleting `main`. Nobody is on its bypass list, admins included.
+
+After changing the file, apply it to the existing ruleset rather than adding a second one:
 
 ```bash
-gh api -X POST repos/gigabytedevelopers/CometOTP-Browser/rulesets --input .github/rulesets/protect-main.json
+id=$(gh api repos/gigabytedevelopers/CometOTP-Browser/rulesets --jq '.[] | select(.name == "Security: reviewed and signed changes") | .id')
+gh api -X PUT "repos/gigabytedevelopers/CometOTP-Browser/rulesets/$id" --input .github/rulesets/protect-main.json
 ```
-
-After changing the file, update the existing ruleset instead of adding a second one:
-
-```bash
-gh api -X PUT repos/gigabytedevelopers/CometOTP-Browser/rulesets/<id> --input .github/rulesets/protect-main.json
-```
-
-It requires a pull request with one approval of its latest push, dismisses stale approvals,
-requires review threads to be resolved and the checks above to pass on the latest commit, and
-forbids unsigned commits, merge commits, force pushes and deleting `main`.
 
 ## Merging so the commits keep your signature
 
@@ -60,21 +57,20 @@ git push origin main
 
 GitHub sees the commits arrive and marks the pull request as merged.
 
-That push goes straight to `main`, so it only works for someone the ruleset lets bypass it; the
-repository **admin** role is on the bypass list for this reason. Keep that role for the few people
-who merge. Without any bypass, the only way onto `main` is GitHub's squash merge, which GitHub
-signs instead of you.
+The ruleset accepts this push without any bypass because the commit you push is the head of a pull
+request into `main` that is approved and has passed its required checks. Anything else is rejected:
+a commit that is not that head, or the head of a pull request that targets another branch. A rebase
+that changes the commits gives the pull request a new head, which needs its checks and a fresh
+approval before the push goes through.
 
 ### Stacked pull requests
 
-When one pull request builds on another, it targets the branch below it rather than `main`. Do not
-retarget it to `main` later: a base change dismisses its approval. Merge the stack from the bottom,
-each with a fast-forward as above. Because a stacked pull request's base is the branch below, GitHub
-only marks it merged once its commits reach that branch, so push them there too:
-
-```bash
-git push origin <stacked-branch>:<branch-below>
-```
+A pull request that targets another branch never satisfies `main`'s rule, so a stack cannot be
+fast-forwarded onto `main` from the stacked pull request itself. Once the lower pull request has
+merged, open a pull request of the upper one's head into `main`, get it approved, and merge that
+(gigabytedevelopers/CometOTP-Browser#18 landed #17 this way). Retargeting the upper pull request to
+`main` works too, but the base change dismisses its approval. Prefer pull requests that target
+`main` directly, merged one after another.
 
 ## Commit signatures
 
