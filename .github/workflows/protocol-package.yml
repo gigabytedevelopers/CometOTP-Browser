@@ -1,0 +1,44 @@
+name: Protocol package
+
+# Builds and tests packages/protocol on every pull request and on main. The tests reproduce the
+# protocol's test vectors, so a change that breaks compatibility with CometOTP for Android fails
+# here.
+#
+# Dependencies install from the lockfile with install scripts switched off, and the runner's own
+# Node is used, so no third-party action runs here.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: protocol-package-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: Protocol package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Reject incident indicators before running repository code
+        run: python3 .github/scripts/check_repository_security.py
+
+      - name: Show the tool versions
+        run: |
+          node --version
+          npm --version
+
+      - name: Install the locked dependencies without install scripts
+        run: npm ci --ignore-scripts
+
+      - name: Build and test
+        run: npm test --workspace @cometotp/protocol
