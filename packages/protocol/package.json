@@ -1,0 +1,21 @@
+{
+  "name": "@cometotp/protocol",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The CometOTP browser sync protocol, version 1: pairing, the vault and codes, on WebCrypto.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    }
+  },
+  "files": [
+    "dist/src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsc -p tsconfig.json && node --test dist/test/*.test.js"
+  }
+}
