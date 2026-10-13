@@ -5,17 +5,20 @@ extension add their release steps here when they exist.
 
 ## Who reviews
 
-`@princesseke` reviews every pull request. The **Request review** workflow asks her when a pull
-request is opened or marked ready, and again on every push, since a push dismisses her earlier
-approval. It runs from the copy on `main`, so until it has been merged, ask her by hand:
+`@princesseke` reviews every pull request. She is listed in `.github/CODEOWNERS` with the owners,
+`@gigabytedevelopersinc` and `@enwokoma`, so GitHub asks all three (never the author) when a pull
+request is opened. GitHub makes those requests itself, so they show as coming from the pull
+request's author; no workflow or token is involved, and nothing appears as `github-actions`.
+
+GitHub never lets authors approve their own pull requests, so her approval is the one the ruleset
+counts. A pull request she opens is approved by an owner instead.
+
+A new push dismisses her approval but does not ask her again. Ask her yourself, so the request is
+yours too:
 
 ```bash
 gh pr edit <number> --add-reviewer princesseke
 ```
-
-The owners in `.github/CODEOWNERS` are asked too, but GitHub never lets authors approve their own
-pull requests, so her approval is the one the ruleset counts. A pull request she opens is approved
-by an owner instead.
 
 ## Checks
 
