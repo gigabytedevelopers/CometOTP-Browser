@@ -37,15 +37,17 @@ it in CometOTP and reset two-factor authentication on the services it had.
   the threat model and the plan of pull requests.
 - **[Protocol, version 1](docs/protocol.md):** pairing, the encrypted vault, the codes and the
   relay's API, precise enough to build any of the three parts from.
+- **[Running your own relay](docs/self-hosting.md):** the relay's Docker image behind Caddy, on
+  your own server and domain.
 
 ## Repository layout
 
 | Path | What it is |
 | --- | --- |
-| `docs/` | The design and the sync protocol. |
+| `docs/` | The design, the sync protocol and the self-hosting guide. |
 | `vectors/` | Protocol test vectors, shared with CometOTP for Android. |
 | `packages/protocol/` | The protocol in TypeScript, shared by the relay and the extension. |
-| `relay/` | The relay server ([how to run it](relay/README.md)); its Docker image is to come. |
+| `relay/` | The relay server ([how to run it](relay/README.md)), its Docker image and, in `relay/deploy/`, the files to run it behind Caddy. |
 | `extension/` | *To come:* the extension, built for Chromium and for Firefox. |
 
 ## Checking the protocol test vectors

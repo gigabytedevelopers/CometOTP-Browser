@@ -1,0 +1,44 @@
+# The relay behind Caddy, which gets and renews its HTTPS certificate (docs/self-hosting.md).
+# Set RELAY_DOMAIN in a .env file beside this one (see .env.example), then:
+#
+#   docker compose up -d
+#
+# CI starts this same file with RELAY_DOMAIN=localhost and the image it just built.
+name: cometotp-relay
+
+services:
+  relay:
+    image: ${RELAY_IMAGE:-ghcr.io/gigabytedevelopers/cometotp-relay:0.1.0}
+    restart: unless-stopped
+    environment:
+      # Caddy sets X-Forwarded-For to the client's address; the relay uses it for rate limits only.
+      TRUST_PROXY: "1"
+    volumes:
+      - relay-data:/data
+    # Nothing but the database is written, and the relay needs no privileges.
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    # No ports: only Caddy reaches it, over this file's own network.
+
+  caddy:
+    image: caddy:2.11.7@sha256:f2a1290d0463aad60660d4ec134943f183ee2a5f6c3eb7bf32dd984f2f020772
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      RELAY_DOMAIN: ${RELAY_DOMAIN:?Set RELAY_DOMAIN in .env to the relay's domain}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - relay
+
+volumes:
+  relay-data:
+  caddy-data:
+  caddy-config:

@@ -10,20 +10,32 @@ HTTP server and SQLite (`node:sqlite`) are Node's own.
 
 ## Running it
 
+To run your own, follow [Running your own relay](../docs/self-hosting.md): the Docker image
+`ghcr.io/gigabytedevelopers/cometotp-relay` behind Caddy, which takes care of HTTPS.
+
+The image is built from the repository root, since the relay needs the protocol package beside it.
+It runs as an unprivileged user and keeps its database in the volume `/data`:
+
+```bash
+docker build -f relay/Dockerfile -t cometotp-relay .
+docker run -d -p 127.0.0.1:8080:8080 -v relay-data:/data cometotp-relay
+```
+
+Without Docker:
+
 ```bash
 npm ci
 npm run build
 DATABASE_PATH=relay.sqlite npm start --workspace @cometotp/relay
 ```
 
-Put it behind a reverse proxy that terminates HTTPS (Caddy, nginx), and set `TRUST_PROXY=1` there.
-A Docker image and a self-hosting guide come with the next pull request.
+Either way, put it behind a reverse proxy that terminates HTTPS, and set `TRUST_PROXY=1` there.
 
 | Variable | Default | What it sets |
 | --- | --- | --- |
 | `PORT` | `8080` | Port to listen on. |
 | `HOST` | `0.0.0.0` | Address to listen on. |
-| `DATABASE_PATH` | `relay.sqlite` | The SQLite file. Back it up if you like; losing it means every browser has to pair again. |
+| `DATABASE_PATH` | `relay.sqlite` (`/data/relay.sqlite` in the image) | The SQLite file. Back it up if you like; losing it means every browser has to pair again. |
 | `TRUST_PROXY` | off | `1` to take the client's address from `X-Forwarded-For`, for rate limits only. Set it only behind a proxy that sets that header. |
 | `LONG_POLL_MS` | `25000` | How long a pairing channel read waits for a message. |
 | `LIMIT_CHANNELS_PER_HOUR` | `30` | Channels created and claimed, per client address. |

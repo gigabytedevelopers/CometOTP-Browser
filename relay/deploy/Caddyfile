@@ -1,0 +1,10 @@
+# The relay's HTTPS front (docs/self-hosting.md). Caddy gets a certificate for RELAY_DOMAIN and
+# renews it on its own, and redirects plain HTTP to HTTPS.
+#
+# There is no `log` directive on purpose: without one Caddy keeps no access log, so no IP
+# addresses are written down, which is what the relay promises (relay/README.md).
+# Nothing else is needed: Caddy waits as long as the relay's 25-second long polls take, and the
+# relay sets its own CORS and caching headers.
+{$RELAY_DOMAIN} {
+	reverse_proxy relay:8080
+}
