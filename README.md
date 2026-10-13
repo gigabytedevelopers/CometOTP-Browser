@@ -45,7 +45,7 @@ it in CometOTP and reset two-factor authentication on the services it had.
 | `docs/` | The design and the sync protocol. |
 | `vectors/` | Protocol test vectors, shared with CometOTP for Android. |
 | `packages/protocol/` | The protocol in TypeScript, shared by the relay and the extension. |
-| `relay/` | *To come:* the relay server and its Docker image. |
+| `relay/` | The relay server ([how to run it](relay/README.md)); its Docker image is to come. |
 | `extension/` | *To come:* the extension, built for Chromium and for Firefox. |
 
 ## Checking the protocol test vectors
