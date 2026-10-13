@@ -73,3 +73,6 @@ seconds. It runs only when `RELAY_URL` is set:
 ```bash
 RELAY_URL=https://relay.example.com node --test relay/dist/test/deployed.test.js
 ```
+
+CI builds the image on every pull request, starts it with `deploy/compose.yaml` as the
+self-hosting guide does, and runs these tests through Caddy.
