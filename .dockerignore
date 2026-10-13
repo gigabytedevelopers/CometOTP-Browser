@@ -1,0 +1,13 @@
+# The relay's image (relay/Dockerfile) is built from the repository root. Only what it needs goes
+# into the build context: everything else, local builds and data included, stays out.
+*
+!package.json
+!package-lock.json
+!.npmrc
+!tsconfig.base.json
+!packages/protocol/
+!relay/
+**/node_modules
+**/dist
+**/*.sqlite*
+relay/deploy/
