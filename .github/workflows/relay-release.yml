@@ -111,7 +111,17 @@ jobs:
           ACTOR: ${{ github.actor }}
         run: |
           printf '%s' "$TOKEN" | docker login ghcr.io --username "$ACTOR" --password-stdin
-          docker buildx imagetools create \
-            --tag "$IMAGE:$VERSION" --tag "$IMAGE:${VERSION%.*}" --tag "$IMAGE:latest" \
-            "$IMAGE:$VERSION-amd64" "$IMAGE:$VERSION-arm64"
+          # Right after a push, the registry can take a few seconds to serve the new manifests by
+          # digest ("not found"), so the join is tried a few times before giving up.
+          for attempt in 1 2 3 4 5; do
+            if docker buildx imagetools create \
+                --tag "$IMAGE:$VERSION" --tag "$IMAGE:${VERSION%.*}" --tag "$IMAGE:latest" \
+                "$IMAGE:$VERSION-amd64" "$IMAGE:$VERSION-arm64"; then
+              break
+            fi
+            if [ "$attempt" = 5 ]; then
+              exit 1
+            fi
+            sleep $((attempt * 10))
+          done
           docker buildx imagetools inspect "$IMAGE:$VERSION"
