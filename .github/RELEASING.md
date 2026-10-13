@@ -26,6 +26,8 @@ gh pr edit <number> --add-reviewer princesseke
 | --- | --- | --- | --- |
 | Repository security | `repository-security.yml` | yes | Rejects editor tasks that run when a folder opens, disguised payloads and committed credentials, without running any repository code. |
 | Protocol vectors | `protocol-vectors.yml` | not yet | Regenerates the protocol test vectors, which must not change, and recomputes them with the Java crypto APIs Android uses. |
+| Protocol package | `protocol-package.yml` | not yet | Builds `packages/protocol` and runs its tests, which reproduce the test vectors. |
+| Relay | `relay.yml` | not yet | Builds the relay and runs its API tests. |
 
 Only required checks block a merge. If you rename a required job, update the matching `context` in
 the ruleset as well: a required check that no longer reports leaves pull requests waiting forever.
