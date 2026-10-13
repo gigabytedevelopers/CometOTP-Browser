@@ -53,3 +53,11 @@ npm test --workspace @cometotp/relay
 
 They run every endpoint and error code over HTTP against an in-memory database, with a clock they
 move to check expiry and clean-up.
+
+`test/deployed.test.ts` checks a relay that is already running, through whatever stands in front of
+it: a pairing between a phone and a browser, a vault, and a long poll held open for its full 25
+seconds. It runs only when `RELAY_URL` is set:
+
+```bash
+RELAY_URL=https://relay.example.com node --test relay/dist/test/deployed.test.js
+```
