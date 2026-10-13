@@ -335,6 +335,7 @@ its clock and the relay's `Date` header differ by more than 30 seconds.
 | 409 | `exists` | The channel or vault id is taken. |
 | 409 | `claimed` | Another phone already answered this channel. |
 | 409 | `not_claimed` | The browser posted before any phone answered. |
+| 409 | `full` | That direction of the channel already holds its 4 messages. |
 | 409 | `stale_version` | The upload's version is not above the stored one; the body also has `"version": <stored>`. |
 | 410 | `expired` | The channel's time is up. |
 | 410 | `gone` | The vault was deleted (§6.3). |
@@ -358,9 +359,10 @@ its clock and the relay's `Date` header differ by more than 30 seconds.
 | `GET /v1/pair/{c}/to-phone?after=n` | phone's | The same, for the other direction. |
 | `DELETE /v1/pair/{c}` | either | `204`. |
 
-A frame is at most 1,024 bytes and a direction holds at most 4 messages. A channel lasts
-`CHANNEL_LIFETIME` from its creation. Requests for it after that, or after it was deleted, get
-`410 expired`, and its id cannot be created again within that time.
+A frame is at most 1,024 bytes (`413 too_large` beyond) and a direction holds at most 4
+messages (`409 full` beyond). A channel lasts `CHANNEL_LIFETIME` from its creation. Requests for
+it after that, or after it was deleted, get `410 expired`, and its id cannot be created again
+until a further `CHANNEL_LIFETIME` has passed.
 
 ### 6.3 Vaults
 
@@ -379,7 +381,7 @@ can answer `410` rather than `404`.
 
 - A vault never downloaded within 7 days of its creation is deleted: its pairing never finished.
 - A vault not downloaded for 180 days is deleted.
-- Channels are deleted after `CHANNEL_LIFETIME`.
+- Channels, and their messages, are forgotten a further `CHANNEL_LIFETIME` after they expire.
 
 ---
 
