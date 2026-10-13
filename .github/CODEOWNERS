@@ -1,5 +1,8 @@
-# The project's owners. GitHub asks them to review every pull request (never the author), but the
-# ruleset only needs one approving review from someone with write access. That review comes from
-# @princesseke, who is asked on every pull request by .github/workflows/request-review.yml, because
-# an owner cannot approve their own pull request.
-*       @gigabytedevelopersinc @enwokoma
+# Who GitHub asks to review every pull request (never its author). It asks them itself, so each
+# request shows as coming from the pull request's author: no workflow or token is involved.
+#
+# The ruleset only needs one approving review from someone with write access, and that review
+# comes from @princesseke: GitHub never lets authors approve their own pull requests, so the
+# owners, @gigabytedevelopersinc and @enwokoma, cannot approve theirs. She is listed here so that
+# she is asked on every pull request.
+*       @gigabytedevelopersinc @enwokoma @princesseke
