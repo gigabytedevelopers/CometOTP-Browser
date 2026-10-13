@@ -1,0 +1,117 @@
+name: Relay release
+
+# Publishes the relay's image to the GitHub Container Registry when a signed tag `relay-vX.Y.Z` is
+# pushed (.github/RELEASING.md). The tag must be signed, as GitHub verifies it, and match the
+# relay's version in relay/package.json. Each architecture is built natively on its own runner,
+# so nothing is emulated and no third-party action runs; the two are then joined under one tag.
+on:
+  push:
+    tags: ['relay-v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: relay-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/gigabytedevelopers/cometotp-relay
+
+jobs:
+  check:
+    name: Check the tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Reject incident indicators before running repository code
+        run: python3 .github/scripts/check_repository_security.py
+
+      - name: Check that the tag is signed and matches the relay's version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#relay-v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::$TAG is not relay-vX.Y.Z"
+            exit 1
+          fi
+          expected=$(node -p 'require("./relay/package.json").version')
+          if [ "$version" != "$expected" ]; then
+            echo "::error::$TAG does not match relay/package.json, which says $expected"
+            exit 1
+          fi
+          read -r type sha < <(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.type + " " + .object.sha')
+          if [ "$type" != tag ]; then
+            echo "::error::$TAG is a lightweight tag; push an annotated, signed one (git tag -s)"
+            exit 1
+          fi
+          if [ "$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq '.verification.verified')" != true ]; then
+            echo "::error::GitHub could not verify the signature on $TAG"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.arch }}
+    needs: check
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    env:
+      TAG: ${{ needs.check.outputs.version }}-${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Reject incident indicators before running repository code
+        run: python3 .github/scripts/check_repository_security.py
+
+      - name: Build and push the ${{ matrix.arch }} image
+        env:
+          TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          printf '%s' "$TOKEN" | docker login ghcr.io --username "$ACTOR" --password-stdin
+          docker build --file relay/Dockerfile --tag "$IMAGE:$TAG" .
+          docker push "$IMAGE:$TAG"
+
+  publish:
+    name: Publish
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - name: Join both architectures under the version, its minor version and latest
+        env:
+          TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          printf '%s' "$TOKEN" | docker login ghcr.io --username "$ACTOR" --password-stdin
+          docker buildx imagetools create \
+            --tag "$IMAGE:$VERSION" --tag "$IMAGE:${VERSION%.*}" --tag "$IMAGE:latest" \
+            "$IMAGE:$VERSION-amd64" "$IMAGE:$VERSION-arm64"
+          docker buildx imagetools inspect "$IMAGE:$VERSION"

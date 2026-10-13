@@ -1,7 +1,7 @@
 # Reviewing and merging
 
-How a change gets onto `main` in this repository. Nothing is released yet: the relay image and the
-extension add their release steps here when they exist.
+How a change gets onto `main` in this repository, and how the relay's image is released. The
+extension adds its release steps here when it exists.
 
 ## Who reviews
 
@@ -82,6 +82,28 @@ merged, open a pull request of the upper one's head into `main`, get it approved
 (gigabytedevelopers/CometOTP-Browser#18 landed #17 this way). Retargeting the upper pull request to
 `main` works too, but the base change dismisses its approval. Prefer pull requests that target
 `main` directly, merged one after another.
+
+## Releasing the relay image
+
+The relay's image is published to `ghcr.io/gigabytedevelopers/cometotp-relay` by
+`relay-release.yml` when a signed tag `relay-vX.Y.Z` is pushed:
+
+1. Merge a pull request that sets the new version in `relay/package.json`, and in the image named in
+   `relay/deploy/compose.yaml` and `docs/self-hosting.md`.
+2. Tag that commit on `main` with your signature and push the tag:
+
+   ```bash
+   git tag -s relay-v0.1.0 -m "Relay 0.1.0"
+   git push origin relay-v0.1.0
+   ```
+
+The workflow refuses a tag that is not annotated, whose signature GitHub cannot verify, or whose
+version is not the one in `relay/package.json`. It then builds the image natively for `amd64` and
+`arm64`, pushes each as `X.Y.Z-amd64` and `X.Y.Z-arm64`, and joins them under `X.Y.Z`, `X.Y` and
+`latest`.
+
+The first time, the package is private: in its settings on GitHub, change its visibility to public
+so that anyone can pull it, and check that it is linked to this repository.
 
 ## Commit signatures
 
