@@ -1,6 +1,7 @@
 // Loads each build into a real browser, in a throwaway profile, and checks that it works there:
 // the browser accepts it, its popup page opens, and the page reaches the background, which answers
-// with the extension's version (src/popup/popup.ts records it in `data-background`).
+// with the extension's version (src/popup/popup.ts records it in `data-background`). Then it uses
+// the lock as a person would, through the popup (see exerciseLock).
 //
 // - Chrome, driven through the DevTools protocol over a pipe: Extensions.loadUnpacked, which
 //   needs --enable-unsafe-extension-debugging.
@@ -42,11 +43,94 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function waitFor<T>(what: string, check: () => Promise<T | undefined>): Promise<T> {
   const deadline = Date.now() + TIMEOUT_MS;
   for (;;) {
-    const value = await check();
+    // A page being reloaded cannot answer for a moment.
+    const value = await check().catch(() => undefined);
     if (value !== undefined) return value;
     if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
     await delay(250);
   }
+}
+
+/** Runs an expression in the popup page and gives back its result if it is a string. */
+type Evaluate = (expression: string) => Promise<string | undefined>;
+
+const PASSWORD = 'orbit lantern pickle';
+
+const READ_LOCK_RECORD = `(async () => {
+  const db = await new Promise((resolve, reject) => {
+    const req = indexedDB.open('cometotp');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  const value = await new Promise((resolve, reject) => {
+    const req = db.transaction('records').objectStore('records').get('lock');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  db.close();
+  return JSON.stringify(value ?? null);
+})()`;
+
+const READ_SESSION_KEY = `(async () => (await chrome.storage.session.get('localKey')).localKey ?? 'none')()`;
+
+function fill(form: string, fields: Record<string, string>): string {
+  const sets = Object.entries(fields)
+    .map(([id, value]) => `set(${JSON.stringify(id)}, ${JSON.stringify(value)});`)
+    .join(' ');
+  return `(() => {
+    const set = (id, value) => {
+      const input = document.getElementById(id);
+      input.value = value;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    ${sets}
+    document.getElementById(${JSON.stringify(form)}).requestSubmit();
+    return 'sent';
+  })()`;
+}
+
+async function view(evaluate: Evaluate, expected: string): Promise<void> {
+  await waitFor(`the popup to show "${expected}"`, async () =>
+    (await evaluate('document.body?.dataset.view')) === expected ? true : undefined,
+  );
+}
+
+/**
+ * Uses the lock through the popup, as a person would: sets a password, checks that the local key
+ * is only in storage.session and that the record on disk holds neither it nor the password; locks,
+ * reloads and checks that nothing is in memory; tries a wrong password; and unlocks again, getting
+ * the same key back.
+ */
+async function exerciseLock(evaluate: Evaluate): Promise<void> {
+  await view(evaluate, 'new');
+  await evaluate(fill('setup-form', { 'setup-password': PASSWORD, 'setup-confirm': PASSWORD }));
+  await view(evaluate, 'unlocked');
+
+  const key = await evaluate(READ_SESSION_KEY);
+  if (!key || !/^[A-Za-z0-9_-]{43}$/.test(key)) throw new Error(`No local key in storage.session after setup (${key})`);
+  const record = JSON.parse((await evaluate(READ_LOCK_RECORD)) ?? 'null');
+  if (record?.v !== 1 || record.kdf?.memory !== 65536 || record.kdf?.passes !== 3) {
+    throw new Error(`Unexpected lock record ${JSON.stringify(record)}`);
+  }
+  const stored = JSON.stringify(record);
+  if (stored.includes(key) || stored.includes('lantern')) throw new Error('The lock record gives away the key or the password');
+
+  await evaluate("(() => { document.getElementById('lock').click(); return 'clicked'; })()");
+  await view(evaluate, 'locked');
+  await evaluate("(() => { location.reload(); return 'reloading'; })()");
+  await delay(500);
+  await view(evaluate, 'locked');
+  if ((await evaluate(READ_SESSION_KEY)) !== 'none') throw new Error('The local key is still in memory after locking');
+
+  await evaluate(fill('unlock-form', { 'unlock-password': 'orbit lantern pickles' }));
+  await waitFor('"Wrong password."', async () =>
+    (await evaluate("document.getElementById('unlock-error').textContent")) === 'Wrong password.' ? true : undefined,
+  );
+  if ((await evaluate('document.body.dataset.view')) !== 'locked') throw new Error('A wrong password unlocked it');
+
+  await evaluate(fill('unlock-form', { 'unlock-password': PASSWORD }));
+  await view(evaluate, 'unlocked');
+  if ((await evaluate(READ_SESSION_KEY)) !== key) throw new Error('Unlocking gave a different local key');
 }
 
 /** A JSON message protocol: requests with ids, answers matched to them, and events. */
@@ -152,9 +236,15 @@ async function loadInChrome(binary: string, dir: string): Promise<void> {
       const { result } = await cdp.send('Runtime.evaluate', { expression: 'document.body?.dataset.background', returnByValue: true }, sessionId);
       return typeof result.value === 'string' ? (result.value as string) : undefined;
     });
+    if (answer !== version()) throw new Error(`The background answered "${answer}", not ${version()}`);
+
+    await exerciseLock(async (expression) => {
+      const reply = await cdp.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }, sessionId);
+      if (reply.exceptionDetails) throw new Error(JSON.stringify(reply.exceptionDetails));
+      return typeof reply.result?.value === 'string' ? (reply.result.value as string) : undefined;
+    });
     const errors = cdp.events.filter((e) => e.method === 'Runtime.exceptionThrown' && e.sessionId === sessionId);
     if (errors.length) throw new Error(`The popup threw: ${JSON.stringify(errors[0]!.params.exceptionDetails)}`);
-    if (answer !== version()) throw new Error(`The background answered "${answer}", not ${version()}`);
   } finally {
     stop(child, profile);
   }
@@ -214,6 +304,12 @@ async function loadInFirefox(binary: string, dir: string): Promise<void> {
         return reply.result?.type === 'string' ? (reply.result.value as string) : undefined;
       });
       if (answer !== version()) throw new Error(`The background answered "${answer}", not ${version()}`);
+
+      await exerciseLock(async (expression) => {
+        const reply = await bidi.send('script.evaluate', { expression, target: { context }, awaitPromise: true });
+        if (reply.type === 'exception') throw new Error(JSON.stringify(reply.exceptionDetails));
+        return reply.result?.type === 'string' ? (reply.result.value as string) : undefined;
+      });
       await bidi.send('session.end').catch(() => undefined);
     } finally {
       socket.close();
@@ -255,7 +351,7 @@ for (const browser of browsers) {
   }
   try {
     await browser.load(browser.binary, targetDir(browser.target));
-    console.log(`${browser.name}: the ${browser.target} build loads, and its popup reaches the background (${version()})`);
+    console.log(`${browser.name}: the ${browser.target} build loads, its popup reaches the background (${version()}), and the lock works`);
   } catch (error) {
     failed = true;
     console.error(`${browser.name}: ${error instanceof Error ? error.message : String(error)}`);
