@@ -428,11 +428,15 @@ This part does not affect the other parties; it records the design for review.
 - A random 32-byte local key `M` encrypts the vault key, the downloaded payload and the site
   links, with AES-256-GCM.
 - `M` is stored wrapped twice:
-  - by `Argon2id(password, 16-byte salt, m = 64 MiB, t = 3, p = 1, 32 bytes)`;
+  - by `Argon2id(password, 16-byte salt, m = 64 MiB, t = 3, p = 1, 32 bytes)`, with the password
+    NFC-normalized and UTF-8 encoded, and `utf8("CometOTP lock v1 password")` as the associated
+    data;
   - by `HKDF(prf, "", utf8("CometOTP unlock v1 passkey"), 32)`, where `prf` is the WebAuthn PRF
     output for input `SHA256(utf8("CometOTP unlock v1 prf"))`, when a passkey is set up.
 - The relay URL, vault id, read token and highest accepted version stay outside `M`, so the
   extension can download while locked; the blob itself stays sealed under `V`.
+- Each value sealed under `M` has `utf8("CometOTP local v1") ‖ lp(utf8(name))` as its associated
+  data, so stored values cannot be swapped for one another.
 - While unlocked, `M` is kept in `storage.session`, which is memory only and closed to content
   scripts. Locking clears it.
 
