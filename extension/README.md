@@ -23,6 +23,14 @@ The extension keeps everything private sealed under a random 32-byte local key M
   usual variants, repeats and runs.
 - **Forgot the password?** **Reset the extension** forgets it and everything the extension keeps.
   The phone keeps everything, so the browser is paired again afterwards.
+- **A passkey** can unlock instead of the password: Touch ID, Windows Hello, a phone or a security
+  key (`src/lock/passkey.ts`). The extension asks it, with the person verified, for its WebAuthn
+  PRF output on a fixed input, and seals a second copy of M under a key from that output (HKDF).
+  Only the authenticator can produce it; nothing is sent anywhere. The relying party is the
+  extension itself (no RP ID is given, so no host permission is needed). The option appears only
+  where the browser reports PRF support, and the password always keeps working. Firefox closes
+  extension popups when the passkey prompt appears (Mozilla bug 2026687), so there the popup
+  opens a tab for it.
 
 Argon2id comes from [hash-wasm](https://github.com/Daninet/hash-wasm) 4.12.0 (MIT), as
 WebCrypto has none: its published ES module build is copied into the extension unchanged, with
@@ -110,7 +118,10 @@ npm run load-test --workspace @cometotp/extension
   and waits for its popup to reach its background. Then it uses the lock through the popup: it
   sets a password, checks that the local key is only in memory and that the record on disk holds
   neither it nor the password, locks and reloads, tries a wrong password, and unlocks again to
-  the same key. Chrome is driven through the DevTools protocol
+  the same key. In Chrome it then attaches a virtual authenticator with PRF, adds a passkey, and
+  unlocks with it to the same key; an authenticator without PRF is refused, and the password
+  still works. WebDriver BiDi has no virtual authenticator yet, so in Firefox it only checks
+  whether passkeys are offered. Chrome is driven through the DevTools protocol
   (`Extensions.loadUnpacked`), Firefox through WebDriver BiDi (`webExtension.install`). A browser
   that is not installed is skipped, except in CI, which runs both.
 

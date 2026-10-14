@@ -432,7 +432,9 @@ This part does not affect the other parties; it records the design for review.
     NFC-normalized and UTF-8 encoded, and `utf8("CometOTP lock v1 password")` as the associated
     data;
   - by `HKDF(prf, "", utf8("CometOTP unlock v1 passkey"), 32)`, where `prf` is the WebAuthn PRF
-    output for input `SHA256(utf8("CometOTP unlock v1 prf"))`, when a passkey is set up.
+    output for input `SHA256(utf8("CometOTP unlock v1 prf"))`, when a passkey is set up, with
+    `utf8("CometOTP lock v1 passkey")` as the associated data. The passkey belongs to the
+    extension's own origin, and user verification is required.
 - The relay URL, vault id, read token and highest accepted version stay outside `M`, so the
   extension can download while locked; the blob itself stays sealed under `V`.
 - Each value sealed under `M` has `utf8("CometOTP local v1") ‖ lp(utf8(name))` as its associated
