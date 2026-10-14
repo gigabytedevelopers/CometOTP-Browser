@@ -1,7 +1,8 @@
 // Loads each build into a real browser, in a throwaway profile, and checks that it works there:
 // the browser accepts it, its popup page opens, and the page reaches the background, which answers
 // with the extension's version (src/popup/popup.ts records it in `data-background`). Then it uses
-// the lock as a person would, through the popup (see exerciseLock).
+// the lock as a person would, through the popup (see exerciseLock), and in Chrome adds a passkey
+// on a virtual authenticator with the PRF extension and unlocks with it (see exercisePasskey).
 //
 // - Chrome, driven through the DevTools protocol over a pipe: Extensions.loadUnpacked, which
 //   needs --enable-unsafe-extension-debugging.
@@ -133,6 +134,51 @@ async function exerciseLock(evaluate: Evaluate): Promise<void> {
   if ((await evaluate(READ_SESSION_KEY)) !== key) throw new Error('Unlocking gave a different local key');
 }
 
+const click = (id: string) => `(() => { document.getElementById(${JSON.stringify(id)}).click(); return 'clicked'; })()`;
+
+async function attribute(evaluate: Evaluate, what: string, expression: string, expected: (value: string) => boolean): Promise<string> {
+  return waitFor(what, async () => {
+    const value = await evaluate(expression);
+    return value !== undefined && expected(value) ? value : undefined;
+  });
+}
+
+/**
+ * Starting unlocked: adds a passkey on an authenticator with the PRF extension, locks, and unlocks
+ * with the passkey to the same key. Then an authenticator without PRF cannot replace it, and the
+ * password still unlocks with the passkey in place.
+ */
+async function exercisePasskey(evaluate: Evaluate, useAuthenticator: (prf: boolean) => Promise<void>): Promise<void> {
+  const support = await attribute(evaluate, 'the passkey panel', 'document.body.dataset.passkey', () => true);
+  if (support !== 'none') throw new Error(`Passkeys should be offered here, but the popup says "${support}"`);
+  await useAuthenticator(true);
+  await evaluate(click('passkey-add'));
+  await attribute(evaluate, 'the passkey to be added', 'document.body.dataset.passkey', (v) => v === 'added');
+  const key = await evaluate(READ_SESSION_KEY);
+
+  await evaluate(click('lock'));
+  await view(evaluate, 'locked');
+  if ((await evaluate("String(document.getElementById('passkey-unlock').hidden)")) !== 'false') {
+    throw new Error('The locked popup does not offer the passkey');
+  }
+  await evaluate(click('passkey-unlock-submit'));
+  await view(evaluate, 'unlocked');
+  if ((await evaluate(READ_SESSION_KEY)) !== key) throw new Error('The passkey unlocked to a different local key');
+
+  await useAuthenticator(false);
+  await evaluate(click('passkey-add'));
+  await attribute(evaluate, 'a passkey without PRF to be refused', "document.getElementById('passkey-error').textContent", (v) =>
+    v.includes('cannot unlock'),
+  );
+  if ((await evaluate('document.body.dataset.passkey')) !== 'added') throw new Error('A refused passkey replaced the one added');
+
+  await evaluate(click('lock'));
+  await view(evaluate, 'locked');
+  await evaluate(fill('unlock-form', { 'unlock-password': PASSWORD }));
+  await view(evaluate, 'unlocked');
+  if ((await evaluate(READ_SESSION_KEY)) !== key) throw new Error('The password unlocked to a different local key');
+}
+
 /** A JSON message protocol: requests with ids, answers matched to them, and events. */
 abstract class Connection {
   private next = 1;
@@ -238,10 +284,34 @@ async function loadInChrome(binary: string, dir: string): Promise<void> {
     });
     if (answer !== version()) throw new Error(`The background answered "${answer}", not ${version()}`);
 
-    await exerciseLock(async (expression) => {
+    const evaluate: Evaluate = async (expression) => {
       const reply = await cdp.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }, sessionId);
       if (reply.exceptionDetails) throw new Error(JSON.stringify(reply.exceptionDetails));
       return typeof reply.result?.value === 'string' ? (reply.result.value as string) : undefined;
+    };
+    await exerciseLock(evaluate);
+
+    // A virtual authenticator that verifies the person at once, with or without PRF.
+    await cdp.send('WebAuthn.enable', { enableUI: false }, sessionId);
+    let authenticatorId: string | undefined;
+    await exercisePasskey(evaluate, async (prf) => {
+      if (authenticatorId) await cdp.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId }, sessionId);
+      ({ authenticatorId } = await cdp.send(
+        'WebAuthn.addVirtualAuthenticator',
+        {
+          options: {
+            protocol: 'ctap2',
+            ctap2Version: 'ctap2_1',
+            transport: 'internal',
+            hasResidentKey: true,
+            hasUserVerification: true,
+            isUserVerified: true,
+            hasPrf: prf,
+            automaticPresenceSimulation: true,
+          },
+        },
+        sessionId,
+      ));
     });
     const errors = cdp.events.filter((e) => e.method === 'Runtime.exceptionThrown' && e.sessionId === sessionId);
     if (errors.length) throw new Error(`The popup threw: ${JSON.stringify(errors[0]!.params.exceptionDetails)}`);
@@ -260,6 +330,9 @@ function freePort(): Promise<number> {
     server.on('error', reject);
   });
 }
+
+/** What the Firefox popup said about passkeys, for the summary. */
+let firefoxPasskeys = '';
 
 async function loadInFirefox(binary: string, dir: string): Promise<void> {
   const profile = mkdtempSync(join(tmpdir(), 'cometotp-firefox-'));
@@ -305,11 +378,14 @@ async function loadInFirefox(binary: string, dir: string): Promise<void> {
       });
       if (answer !== version()) throw new Error(`The background answered "${answer}", not ${version()}`);
 
-      await exerciseLock(async (expression) => {
+      const evaluate: Evaluate = async (expression) => {
         const reply = await bidi.send('script.evaluate', { expression, target: { context }, awaitPromise: true });
         if (reply.type === 'exception') throw new Error(JSON.stringify(reply.exceptionDetails));
         return reply.result?.type === 'string' ? (reply.result.value as string) : undefined;
-      });
+      };
+      await exerciseLock(evaluate);
+      // WebDriver BiDi has no virtual authenticator yet, so here only whether passkeys are offered.
+      firefoxPasskeys = await attribute(evaluate, 'the passkey panel', 'document.body.dataset.passkey', () => true);
       await bidi.send('session.end').catch(() => undefined);
     } finally {
       socket.close();
@@ -351,7 +427,11 @@ for (const browser of browsers) {
   }
   try {
     await browser.load(browser.binary, targetDir(browser.target));
-    console.log(`${browser.name}: the ${browser.target} build loads, its popup reaches the background (${version()}), and the lock works`);
+    const passkeys =
+      browser.target === 'chromium'
+        ? 'a passkey unlocks it'
+        : `passkeys ${firefoxPasskeys === 'unsupported' ? 'are not offered (no PRF)' : 'are offered'}`;
+    console.log(`${browser.name}: the ${browser.target} build loads, its popup reaches the background (${version()}), the lock works, and ${passkeys}`);
   } catch (error) {
     failed = true;
     console.error(`${browser.name}: ${error instanceof Error ? error.message : String(error)}`);
