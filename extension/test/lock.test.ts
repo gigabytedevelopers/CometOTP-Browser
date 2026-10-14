@@ -1,5 +1,6 @@
 // The lock's cryptography (src/lock/crypto.ts), in Node with hash-wasm's WebAssembly Argon2id.
 import assert from 'node:assert/strict';
+import { createHash, hkdfSync } from 'node:crypto';
 import { describe, it } from 'node:test';
 
 import { argon2id } from 'hash-wasm/dist/index.esm.js';
@@ -12,8 +13,12 @@ import {
   isLockRecord,
   openLock,
   openPrivate,
+  openWithPasskey,
+  passkeyKey,
   passwordKey,
+  prfSalt,
   sealPrivate,
+  wrapForPasskey,
   type KdfParams,
 } from '../src/lock/crypto.js';
 
@@ -86,5 +91,34 @@ describe('private values', () => {
     assert.deepEqual(await openPrivate(localKey, 'vault', sealed), value);
     await assert.rejects(openPrivate(randomBytes(32), 'vault', sealed));
     await assert.rejects(openPrivate(localKey, 'links', sealed));
+  });
+});
+
+describe('passkeys', () => {
+  it('ask every passkey for its PRF output on SHA256("CometOTP unlock v1 prf")', async () => {
+    assert.equal(hex(await prfSalt()), createHash('sha256').update('CometOTP unlock v1 prf').digest('hex'));
+  });
+
+  it('turn the PRF output into a key with HKDF, as protocol §8 says', async () => {
+    const prf = randomBytes(32);
+    const expected = Buffer.from(hkdfSync('sha256', prf, Buffer.alloc(0), 'CometOTP unlock v1 passkey', 32));
+    assert.equal(hex(await passkeyKey(prf)), expected.toString('hex'));
+    await assert.rejects(async () => passkeyKey(randomBytes(16)), /32 bytes/);
+  });
+
+  it('open their copy of the local key only with the same PRF output', async () => {
+    const { record, localKey } = await createLock('several unrelated words');
+    const prf = randomBytes(32);
+    const wrap = await wrapForPasskey(localKey, 'credential-id', prf);
+    assert.equal(wrap.credential, 'credential-id');
+    assert.deepEqual(await openWithPasskey(wrap, prf), localKey);
+    assert.equal(await openWithPasskey(wrap, randomBytes(32)), null);
+    assert.ok(!JSON.stringify(wrap).includes(toBase64Url(localKey)));
+
+    // A record with a passkey is still a record; a malformed passkey makes it none.
+    assert.ok(isLockRecord({ ...record, passkey: wrap }));
+    assert.equal(isLockRecord({ ...record, passkey: { credential: 1 } }), false);
+    // The password's copy is unaffected.
+    assert.deepEqual(await openLock({ ...record, passkey: wrap }, 'several unrelated words'), localKey);
   });
 });

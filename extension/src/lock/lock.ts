@@ -1,9 +1,9 @@
-// The lock as the popup and the background use it: set up once, then locked or unlocked. Unlocking
-// puts M in storage.session; locking takes it out again, so from then on nothing private can be
-// opened until the password is given again.
+// The lock as the popup and the background use it: set up once, then locked or unlocked. Unlocking,
+// with the password or a passkey, puts M in storage.session; locking takes it out again, so from
+// then on nothing private can be opened until one of them is given again.
 import { fromBase64UrlOfLength, toBase64Url, type Bytes } from '@cometotp/protocol';
 
-import { createLock, isLockRecord, openLock, type LockRecord } from './crypto.js';
+import { createLock, isLockRecord, openLock, openWithPasskey, wrapForPasskey, type LockRecord } from './crypto.js';
 import { clearRecords, clearSessionKey, getRecord, getSessionKey, putRecord, setSessionKey } from './storage.js';
 
 const LOCK_RECORD = 'lock';
@@ -47,6 +47,40 @@ export function lock(): Promise<void> {
 export async function localKey(): Promise<Bytes | null> {
   const value = await getSessionKey();
   return value ? fromBase64UrlOfLength(value, 32, 'The local key') : null;
+}
+
+/** The credential id of the passkey that can unlock, or null when there is none. */
+export async function passkeyCredential(): Promise<string | null> {
+  return (await record())?.passkey?.credential ?? null;
+}
+
+/**
+ * Lets the passkey with `credential` unlock, from its PRF output. Needs the extension unlocked, as
+ * it seals M; replaces any passkey added before.
+ */
+export async function addPasskey(credential: string, prf: Bytes): Promise<void> {
+  const stored = await record();
+  const key = await localKey();
+  if (!stored || !key) throw new Error('Unlock first');
+  await putRecord(LOCK_RECORD, { ...stored, passkey: await wrapForPasskey(key, credential, prf) });
+}
+
+/** Unlocks with the passkey's PRF output; false when it does not open the passkey's copy. */
+export async function unlockWithPasskey(prf: Bytes): Promise<boolean> {
+  const wrap = (await record())?.passkey;
+  if (!wrap) return false;
+  const key = await openWithPasskey(wrap, prf);
+  if (!key) return false;
+  await setSessionKey(toBase64Url(key));
+  return true;
+}
+
+/** Stops the passkey from unlocking; the password keeps working. */
+export async function removePasskey(): Promise<void> {
+  const stored = await record();
+  if (!stored?.passkey) return;
+  const { passkey: _removed, ...rest } = stored;
+  await putRecord(LOCK_RECORD, rest);
 }
 
 /** Forgets the password and everything the extension keeps, for someone who has forgotten it. */
