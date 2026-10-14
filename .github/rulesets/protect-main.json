@@ -44,6 +44,14 @@
           {
             "context": "Repository security",
             "integration_id": 15368
+          },
+          {
+            "context": "Extension",
+            "integration_id": 15368
+          },
+          {
+            "context": "Extension in browsers",
+            "integration_id": 15368
           }
         ],
         "strict_required_status_checks_policy": true

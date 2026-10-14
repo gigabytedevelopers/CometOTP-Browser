@@ -1,0 +1,87 @@
+name: Extension
+
+# Builds the browser extension for Chromium and Firefox on every pull request and on main:
+# - Extension: TypeScript's strict checks, the package check (permissions, content security
+#   policy, inline or remote code), the tests, and both zips kept as an artifact to try;
+# - Extension in browsers: each build loaded into the runner's own Chrome and Firefox, where its
+#   popup must reach its background.
+#
+# Dependencies install from the lockfile with install scripts switched off, and the runner's own
+# Node and browsers are used. The only action besides checkout is GitHub's own upload-artifact.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extension-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  extension:
+    name: Extension
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Reject incident indicators before running repository code
+        run: python3 .github/scripts/check_repository_security.py
+
+      - name: Show the tool versions
+        run: |
+          node --version
+          npm --version
+
+      - name: Install the locked dependencies without install scripts
+        run: npm ci --ignore-scripts
+
+      - name: Build, typecheck and test
+        run: |
+          npm run build --workspace @cometotp/protocol
+          npm test --workspace @cometotp/extension
+
+      - name: Check the packages
+        run: npm run lint --workspace @cometotp/extension
+
+      - name: Keep both zips
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cometotp-extension
+          path: extension/dist/cometotp-*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  browsers:
+    name: Extension in browsers
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Reject incident indicators before running repository code
+        run: python3 .github/scripts/check_repository_security.py
+
+      - name: Show the browser versions
+        run: |
+          google-chrome --version
+          firefox --version
+
+      - name: Install the locked dependencies without install scripts
+        run: npm ci --ignore-scripts
+
+      - name: Build
+        run: |
+          npm run build --workspace @cometotp/protocol
+          npm run build --workspace @cometotp/extension
+
+      - name: Load each build into Chrome and Firefox
+        run: npm run load-test --workspace @cometotp/extension -- --require-all
