@@ -1,9 +1,12 @@
-// The built packages (npm test builds first): what each one holds, and that its zip holds the same.
+// The built packages (npm test builds first): what each one holds, that its zip holds the same,
+// that the check finds nothing, and that it would find what it is there to catch.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 
+import { checkPackage } from '../tools/check.js';
 import { TARGETS, manifest } from '../tools/manifest.js';
 import { listFiles, rewriteImports, targetDir, version, zipPath } from '../tools/package.js';
 import { unzip } from './unzip.js';
@@ -34,7 +37,70 @@ describe('the built packages', () => {
       assert.deepEqual([...files.keys()], EXPECTED);
       for (const [path, data] of files) assert.deepEqual(data, readFileSync(join(targetDir(target), path)), path);
     });
+
+    it(`${target}: passes the check`, () => {
+      assert.deepEqual(checkPackage(target), []);
+    });
   }
+});
+
+describe('the check', () => {
+  const copies: string[] = [];
+  after(() => copies.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
+
+  /** A copy of the Chromium package with one change made to it. */
+  function changed(change: (dir: string) => void): string[] {
+    const dir = mkdtempSync(join(tmpdir(), 'cometotp-check-'));
+    copies.push(dir);
+    cpSync(targetDir('chromium'), dir, { recursive: true });
+    change(dir);
+    return checkPackage('chromium', dir);
+  }
+
+  const edit = (dir: string, path: string, replace: (text: string) => string) =>
+    writeFileSync(join(dir, path), replace(readFileSync(join(dir, path), 'utf8')));
+
+  it('refuses a permission nobody argued for, and a looser content security policy', () => {
+    const problems = changed((dir) =>
+      edit(dir, 'manifest.json', (text) => {
+        const m = JSON.parse(text);
+        m.host_permissions = ['<all_urls>'];
+        m.content_security_policy.extension_pages = "script-src 'self' 'unsafe-eval'";
+        return JSON.stringify(m);
+      }),
+    );
+    assert.ok(problems.some((p) => p.includes('"<all_urls>"')));
+    assert.ok(problems.some((p) => p.includes('content security policy')));
+  });
+
+  it('refuses inline scripts, handlers and anything loaded from elsewhere', () => {
+    const problems = changed((dir) =>
+      edit(dir, 'popup/popup.html', (html) =>
+        html.replace('</main>', '<script>alert(1)</script><a onclick="x()" href="https://example.com">x</a></main>'),
+      ),
+    );
+    assert.ok(problems.some((p) => p.endsWith('inline script')));
+    assert.ok(problems.some((p) => p.endsWith('inline event handler')));
+    assert.ok(problems.some((p) => p.endsWith('loads something from elsewhere')));
+  });
+
+  it('refuses eval, HTML injection and imports the browser cannot resolve', () => {
+    const problems = changed((dir) =>
+      edit(dir, 'popup/popup.js', (js) => `${js}\neval("1");\ndocument.body.innerHTML = "x";\nimport('@cometotp/protocol');\nimport('./missing.js');\n`),
+    );
+    for (const expected of ['calls eval', 'injects HTML', 'which the browser cannot resolve', 'which is not in the package']) {
+      assert.ok(problems.some((p) => p.includes(expected)), expected);
+    }
+  });
+
+  it('refuses files that should not ship, and a missing file the manifest names', () => {
+    const problems = changed((dir) => {
+      writeFileSync(join(dir, 'popup/popup.ts'), '');
+      rmSync(join(dir, 'icons/icon-16.png'));
+    });
+    assert.ok(problems.some((p) => p.includes('popup/popup.ts: not a file')));
+    assert.ok(problems.some((p) => p.includes('names icons/icon-16.png, which is missing')));
+  });
 });
 
 describe('rewriteImports', () => {
