@@ -6,7 +6,8 @@
   "type": "module",
   "workspaces": [
     "packages/*",
-    "relay"
+    "relay",
+    "extension"
   ],
   "engines": {
     "node": ">=22.13"

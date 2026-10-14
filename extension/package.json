@@ -1,0 +1,15 @@
+{
+  "name": "@cometotp/extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The CometOTP browser extension: one source, built for Chromium and for Firefox.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.tools.json && node dist/tools/package.js",
+    "test": "npm run build && node --test dist/test/*.test.js"
+  }
+}
