@@ -5,7 +5,9 @@
 // - Chrome, driven through the DevTools protocol over a pipe: Extensions.loadUnpacked, which
 //   needs --enable-unsafe-extension-debugging.
 // - Firefox, driven through WebDriver BiDi: webExtension.install, a temporary install as from
-//   about:debugging. A preference fixes the extension's moz-extension:// address beforehand.
+//   about:debugging. A preference fixes the extension's moz-extension:// address beforehand, and
+//   MOZ_REMOTE_ALLOW_SYSTEM_ACCESS lets the test open that address, which WebDriver otherwise
+//   refuses as privileged (the --remote-allow-system-access flag it replaces is gone in 159).
 //
 // Usage: node dist/tools/load-test.js [--chrome <path>] [--firefox <path>] [--require-all]
 // Without a path, the usual install locations are tried, and a browser that is not found is
@@ -184,6 +186,7 @@ async function loadInFirefox(binary: string, dir: string): Promise<void> {
   const port = await freePort();
   const child = spawn(binary, ['--headless', '--no-remote', '--profile', profile, '--remote-debugging-port', String(port)], {
     stdio: ['ignore', 'ignore', 'pipe'],
+    env: { ...process.env, MOZ_REMOTE_ALLOW_SYSTEM_ACCESS: '1' },
   });
   let log = '';
   child.stderr!.on('data', (chunk) => (log += String(chunk)));
