@@ -2,7 +2,8 @@
 // would break it in the browser. It is the extension's lint, next to TypeScript's strict checks:
 // - the manifest is the one tools/manifest.ts makes, asks for no permission outside
 //   ALLOWED_PERMISSIONS and keeps the strict content security policy;
-// - every file the manifest names exists, and nothing else is shipped but code, pages and images;
+// - every file the manifest names exists, and nothing else is shipped but code, pages, images and
+//   the licences of copied packages;
 // - pages run no inline script or handler and load nothing from elsewhere;
 // - scripts use no eval, string timers, document.write or HTML injection, and import only files
 //   that are in the package.
@@ -14,7 +15,7 @@ import { pathToFileURL } from 'node:url';
 import { ALLOWED_PERMISSIONS, EXTENSION_PAGES_CSP, MAX_DESCRIPTION, TARGETS, manifest, type Target } from './manifest.js';
 import { listFiles, targetDir, version } from './package.js';
 
-const SHIPPED = /\.(js|html|css|png|svg|json|wasm)$/;
+const SHIPPED = /\.(js|html|css|png|svg|json|wasm)$|^lib\/[^/]+\/LICENSE$/;
 
 const SCRIPT_RULES: [RegExp, string][] = [
   [/\beval\s*\(/, 'calls eval'],

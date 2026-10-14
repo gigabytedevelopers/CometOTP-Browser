@@ -1,8 +1,10 @@
 // Builds the extension for each browser from what `tsc` compiled into dist/src and the files in
 // static/: an unpacked folder, dist/<target>/, to load for testing, and the zip that goes to the
 // store, dist/cometotp-<target>-<version>.zip. Nothing is bundled or minified, so the code in the
-// zips is the code tsc wrote, readable by store reviewers. The protocol package is copied in, under
-// lib/protocol/, only once the extension imports it.
+// zips is the code tsc wrote, readable by store reviewers. Packages the extension imports are
+// copied in under lib/, unchanged, and the imports pointed at the copies: the protocol package,
+// and hash-wasm's published ES module build with its licence, which reviewers can compare with
+// npm's.
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, posix, relative, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -15,8 +17,46 @@ export const DIST_DIR = join(EXTENSION_DIR, 'dist');
 const COMPILED_DIR = join(DIST_DIR, 'src');
 const STATIC_DIR = join(EXTENSION_DIR, 'static');
 
-const PROTOCOL = '@cometotp/protocol';
-const PROTOCOL_DIR = 'lib/protocol';
+/** A package the extension imports, and how it is copied into the build. */
+interface Vendored {
+  /** As the source imports it. */
+  specifier: string;
+  /** Where its entry point lands in the build. */
+  entry: string;
+  /** Its files in the build, by path. */
+  files(): Map<string, Buffer>;
+}
+
+/** The directory of the file `specifier` resolves to. */
+function resolvedDir(specifier: string): string {
+  return dirname(fileURLToPath(import.meta.resolve(specifier)));
+}
+
+const VENDORED: Vendored[] = [
+  {
+    specifier: '@cometotp/protocol',
+    entry: 'lib/protocol/index.js',
+    files() {
+      const dir = resolvedDir('@cometotp/protocol');
+      const files = new Map<string, Buffer>();
+      for (const path of listFiles(dir)) {
+        if (path.endsWith('.js')) files.set(`lib/protocol/${path}`, readFileSync(join(dir, path)));
+      }
+      return files;
+    },
+  },
+  {
+    specifier: 'hash-wasm/dist/index.esm.js',
+    entry: 'lib/hash-wasm/index.esm.js',
+    files() {
+      const dist = resolvedDir('hash-wasm/dist/index.esm.js');
+      return new Map([
+        ['lib/hash-wasm/index.esm.js', readFileSync(join(dist, 'index.esm.js'))],
+        ['lib/hash-wasm/LICENSE', readFileSync(join(dist, '..', 'LICENSE'))],
+      ]);
+    },
+  },
+];
 
 export function version(): string {
   return (JSON.parse(readFileSync(join(EXTENSION_DIR, 'package.json'), 'utf8')) as { version: string }).version;
@@ -44,46 +84,43 @@ export function listFiles(dir: string): string[] {
   return out;
 }
 
-const IMPORT_PATTERN = /(\bfrom\s*|\bimport\s*\(?\s*)(['"])@cometotp\/protocol\2/g;
-
-/**
- * Points `@cometotp/protocol` imports in the JavaScript file at `path` (relative to the extension's
- * root) to the copy under lib/protocol/: browsers cannot resolve package names.
- */
-export function rewriteImports(source: string, path: string): string {
-  let target = posix.relative(posix.dirname(path), `${PROTOCOL_DIR}/index.js`);
-  if (!target.startsWith('.')) target = `./${target}`;
-  return source.replace(IMPORT_PATTERN, (_match, prefix: string, quote: string) => `${prefix}${quote}${target}${quote}`);
+function importPattern(specifier: string): RegExp {
+  const escaped = specifier.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+  return new RegExp(`(\\bfrom\\s*|\\bimport\\s*\\(?\\s*)(['"])${escaped}\\2`, 'g');
 }
 
-/** The compiled scripts, by path, with their imports rewritten; and whether any imports the protocol. */
-function scripts(): { files: Map<string, Buffer>; usesProtocol: boolean } {
+/**
+ * Points the imports of vendored packages in the JavaScript file at `path` (relative to the
+ * extension's root) to their copies under lib/: browsers cannot resolve package names.
+ */
+export function rewriteImports(source: string, path: string): string {
+  let rewritten = source;
+  for (const { specifier, entry } of VENDORED) {
+    let target = posix.relative(posix.dirname(path), entry);
+    if (!target.startsWith('.')) target = `./${target}`;
+    rewritten = rewritten.replace(importPattern(specifier), (_match, prefix: string, quote: string) => `${prefix}${quote}${target}${quote}`);
+  }
+  return rewritten;
+}
+
+/** The compiled scripts, by path, with their imports rewritten; and the vendored packages they import. */
+function scripts(): { files: Map<string, Buffer>; used: Vendored[] } {
   const files = new Map<string, Buffer>();
-  let usesProtocol = false;
+  const used = new Set<Vendored>();
   for (const path of listFiles(COMPILED_DIR)) {
     if (!path.endsWith('.js')) continue;
     const source = readFileSync(join(COMPILED_DIR, path), 'utf8');
-    const rewritten = rewriteImports(source, path);
-    if (rewritten !== source) usesProtocol = true;
-    files.set(path, Buffer.from(rewritten, 'utf8'));
+    for (const vendored of VENDORED) if (importPattern(vendored.specifier).test(source)) used.add(vendored);
+    files.set(path, Buffer.from(rewriteImports(source, path), 'utf8'));
   }
-  return { files, usesProtocol };
-}
-
-function protocolFiles(): Map<string, Buffer> {
-  const dir = dirname(fileURLToPath(import.meta.resolve(PROTOCOL)));
-  const files = new Map<string, Buffer>();
-  for (const path of listFiles(dir)) {
-    if (path.endsWith('.js')) files.set(`${PROTOCOL_DIR}/${path}`, readFileSync(join(dir, path)));
-  }
-  return files;
+  return { files, used: VENDORED.filter((v) => used.has(v)) };
 }
 
 export function build(): void {
   if (!existsSync(COMPILED_DIR)) throw new Error('Compile first: tsc -p tsconfig.json');
-  const { files: compiled, usesProtocol } = scripts();
+  const { files: compiled, used } = scripts();
   const shared = new Map<string, Buffer>(compiled);
-  if (usesProtocol) for (const [path, data] of protocolFiles()) shared.set(path, data);
+  for (const vendored of used) for (const [path, data] of vendored.files()) shared.set(path, data);
   for (const path of listFiles(STATIC_DIR)) shared.set(path, readFileSync(join(STATIC_DIR, path)));
 
   for (const target of TARGETS) {

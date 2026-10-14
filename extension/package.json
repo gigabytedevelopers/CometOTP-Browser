@@ -13,5 +13,9 @@
     "lint": "node dist/tools/check.js",
     "test": "npm run build && node --test dist/test/*.test.js",
     "load-test": "node dist/tools/load-test.js"
+  },
+  "dependencies": {
+    "@cometotp/protocol": "0.1.0",
+    "hash-wasm": "4.12.0"
   }
 }

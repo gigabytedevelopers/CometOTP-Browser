@@ -9,5 +9,5 @@
     "noUnusedParameters": true,
     "noImplicitReturns": true
   },
-  "include": ["tools", "test"]
+  "include": ["tools", "test", "src/hash-wasm.d.ts"]
 }

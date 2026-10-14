@@ -104,6 +104,13 @@ describe('the check', () => {
 });
 
 describe('rewriteImports', () => {
+  it('points hash-wasm at its copy', () => {
+    assert.equal(
+      rewriteImports("import { argon2id } from 'hash-wasm/dist/index.esm.js';", 'lock/crypto.js'),
+      "import { argon2id } from '../lib/hash-wasm/index.esm.js';",
+    );
+  });
+
   it('points the protocol package at its copy, relative to each file', () => {
     assert.equal(
       rewriteImports("import { zip } from '@cometotp/protocol';", 'background.js'),
