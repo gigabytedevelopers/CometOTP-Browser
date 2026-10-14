@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { after, describe, it } from 'node:test';
 
 import { checkPackage } from '../tools/check.js';
@@ -17,6 +18,17 @@ const EXPECTED = [
   'icons/icon-16.png',
   'icons/icon-32.png',
   'icons/icon-48.png',
+  'lib/hash-wasm/LICENSE',
+  'lib/hash-wasm/index.esm.js',
+  'lib/protocol/codes.js',
+  'lib/protocol/crypto.js',
+  'lib/protocol/encoding.js',
+  'lib/protocol/errors.js',
+  'lib/protocol/index.js',
+  'lib/protocol/pairing.js',
+  'lib/protocol/vault.js',
+  'lock/crypto.js',
+  'lock/strength.js',
   'manifest.json',
   'messages.js',
   'popup/popup.css',
@@ -30,6 +42,11 @@ describe('the built packages', () => {
       const dir = targetDir(target);
       assert.deepEqual(listFiles(dir), EXPECTED);
       assert.deepEqual(JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')), manifest(target, version()));
+    });
+
+    it(`${target}: copies hash-wasm exactly as npm publishes it`, () => {
+      const published = fileURLToPath(import.meta.resolve('hash-wasm/dist/index.esm.js'));
+      assert.deepEqual(readFileSync(join(targetDir(target), 'lib/hash-wasm/index.esm.js')), readFileSync(published));
     });
 
     it(`${target}: its zip holds exactly the same files`, () => {
