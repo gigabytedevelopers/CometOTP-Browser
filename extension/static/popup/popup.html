@@ -9,9 +9,49 @@
   </head>
   <body>
     <main>
-      <img src="../icons/icon-128.png" alt="" width="48" height="48">
-      <h1>CometOTP</h1>
-      <p>Not set up yet.</p>
+      <header>
+        <img src="../icons/icon-128.png" alt="" width="40" height="40">
+      </header>
+
+      <section id="setup" hidden>
+        <h1>Set a password</h1>
+        <p class="lead">It protects the codes this browser will keep. CometOTP on your phone keeps its own lock.</p>
+        <form id="setup-form" novalidate>
+          <label for="setup-password">Password</label>
+          <input id="setup-password" type="password" autocomplete="new-password" required>
+          <div id="setup-meter" class="meter" role="meter" aria-label="Password strength" aria-valuemin="0" aria-valuemax="4" aria-valuenow="0" aria-describedby="setup-strength"><div class="meter-bar"></div></div>
+          <p id="setup-strength" class="hint">At least 10 characters. A few unrelated words make a strong one.</p>
+          <label for="setup-confirm">Password again</label>
+          <input id="setup-confirm" type="password" autocomplete="new-password" required>
+          <p id="setup-error" class="error" role="alert"></p>
+          <button id="setup-submit" type="submit">Set password</button>
+        </form>
+        <p class="hint">If you forget it, reset the extension and pair it again: your phone keeps everything.</p>
+      </section>
+
+      <section id="locked" hidden>
+        <h1>CometOTP is locked</h1>
+        <form id="unlock-form" novalidate>
+          <label for="unlock-password">Password</label>
+          <input id="unlock-password" type="password" autocomplete="current-password" required>
+          <p id="unlock-error" class="error" role="alert"></p>
+          <button id="unlock-submit" type="submit">Unlock</button>
+        </form>
+        <button id="forgot" class="link" type="button">Forgot your password?</button>
+        <div id="reset" hidden>
+          <p>Resetting removes this browser's copy of your codes and its password. Then set a new password and pair it with your phone again: your phone keeps everything.</p>
+          <button id="reset-submit" class="danger" type="button">Reset the extension</button>
+          <button id="reset-cancel" class="link" type="button">Cancel</button>
+        </div>
+      </section>
+
+      <section id="unlocked" hidden>
+        <h1>Unlocked</h1>
+        <p class="lead">Pairing with your phone comes next.</p>
+        <button id="lock" type="button">Lock now</button>
+        <p class="hint">CometOTP locks itself after 15 minutes without use, when the computer locks and when the browser quits.</p>
+      </section>
+
       <p class="version" id="version"></p>
     </main>
   </body>

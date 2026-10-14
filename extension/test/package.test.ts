@@ -28,6 +28,8 @@ const EXPECTED = [
   'lib/protocol/pairing.js',
   'lib/protocol/vault.js',
   'lock/crypto.js',
+  'lock/lock.js',
+  'lock/storage.js',
   'lock/strength.js',
   'manifest.json',
   'messages.js',

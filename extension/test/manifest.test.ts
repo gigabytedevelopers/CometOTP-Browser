@@ -32,13 +32,15 @@ describe('manifest', () => {
     });
   });
 
-  it('asks for no permission and keeps the strict content security policy', () => {
+  it('asks only for idle and storage, and keeps the strict content security policy', () => {
     for (const m of [chromium, firefox]) {
-      for (const key of ['permissions', 'optional_permissions', 'host_permissions', 'optional_host_permissions']) {
+      assert.deepEqual(m.permissions, ['idle', 'storage']);
+      for (const key of ['optional_permissions', 'host_permissions', 'optional_host_permissions']) {
         assert.equal(key in m, false, key);
       }
       assert.deepEqual(m.content_security_policy, { extension_pages: EXTENSION_PAGES_CSP });
-      assert.doesNotMatch(EXTENSION_PAGES_CSP, /unsafe|https?:/);
     }
+    // Scripts only from the extension itself; WebAssembly for Argon2id, never eval of JavaScript.
+    assert.equal(EXTENSION_PAGES_CSP, "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; base-uri 'none'");
   });
 });

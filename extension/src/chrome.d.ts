@@ -24,3 +24,26 @@ declare namespace chrome.runtime {
     ): void;
   };
 }
+
+declare namespace chrome.storage {
+  interface StorageArea {
+    get(keys: string | string[]): Promise<Record<string, unknown>>;
+    set(items: Record<string, unknown>): Promise<void>;
+    remove(keys: string | string[]): Promise<void>;
+  }
+
+  /** In memory only: cleared when the browser quits, and closed to content scripts. */
+  const session: StorageArea;
+}
+
+declare namespace chrome.idle {
+  /** Firefox reports only "active" and "idle". */
+  type IdleState = 'active' | 'idle' | 'locked';
+
+  /** How long without input, in seconds, before the state turns "idle" (at least 15). */
+  function setDetectionInterval(seconds: number): void;
+
+  const onStateChanged: {
+    addListener(callback: (state: IdleState) => void): void;
+  };
+}

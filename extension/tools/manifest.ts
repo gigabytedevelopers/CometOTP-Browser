@@ -11,14 +11,20 @@ export const TARGETS: readonly Target[] = ['chromium', 'firefox'];
 export const GECKO_ID = 'cometotp@gigabytedevelopers.com';
 
 /**
- * Permissions the extension may request. Empty until a feature needs one: each one added is shown
- * to people when they install, so it has to be argued for in its pull request. tools/check.ts
- * refuses a build that asks for anything else, host permissions included.
+ * Permissions the extension may request, each argued for in the pull request that added it, as
+ * browsers may show them to people when they install. tools/check.ts refuses a build that asks
+ * for anything else, host permissions included. Neither of these shows an install warning.
+ * - idle: to lock after 15 minutes without input and when the computer locks.
+ * - storage: for storage.session, which holds the local key in memory while unlocked.
  */
-export const ALLOWED_PERMISSIONS: readonly string[] = [];
+export const ALLOWED_PERMISSIONS: readonly string[] = ['idle', 'storage'];
 
-/** Only the extension's own scripts run on its pages: nothing inline, nothing remote. */
-export const EXTENSION_PAGES_CSP = "script-src 'self'; object-src 'none'; base-uri 'none'";
+/**
+ * Only the extension's own scripts run on its pages: nothing inline, nothing remote. WebAssembly
+ * may be compiled ('wasm-unsafe-eval'), for Argon2id, which WebCrypto does not offer; eval of
+ * JavaScript stays forbidden.
+ */
+export const EXTENSION_PAGES_CSP = "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; base-uri 'none'";
 
 /** The Chrome Web Store refuses longer descriptions. */
 export const MAX_DESCRIPTION = 132;
@@ -42,6 +48,7 @@ export function manifest(target: Target, version: string): Record<string, unknow
       default_popup: 'popup/popup.html',
       default_icon: { '16': ICONS['16'], '32': ICONS['32'] },
     },
+    permissions: [...ALLOWED_PERMISSIONS],
     content_security_policy: { extension_pages: EXTENSION_PAGES_CSP },
   };
   if (target === 'chromium') {
