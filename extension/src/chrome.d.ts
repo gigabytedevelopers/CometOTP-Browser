@@ -14,6 +14,9 @@ declare namespace chrome.runtime {
 
   function getManifest(): Manifest;
 
+  /** The full URL of a file in the extension. */
+  function getURL(path: string): string;
+
   /** Sends a message to the extension's other pages and its background; resolves with the reply. */
   function sendMessage(message: unknown): Promise<unknown>;
 
@@ -46,4 +49,9 @@ declare namespace chrome.idle {
   const onStateChanged: {
     addListener(callback: (state: IdleState) => void): void;
   };
+}
+
+declare namespace chrome.tabs {
+  /** Opens a tab; no permission is needed for this. */
+  function create(properties: { url: string }): Promise<unknown>;
 }

@@ -125,6 +125,12 @@ button:disabled {
   cursor: default;
 }
 
+button.secondary {
+  background: none;
+  color: var(--brand);
+  border: 1px solid var(--brand);
+}
+
 button.link {
   background: none;
   color: var(--brand);
@@ -150,6 +156,24 @@ button.danger {
 
 .error:empty {
   display: none;
+}
+
+h2 {
+  margin: 0 0 2px;
+  font-size: 14px;
+}
+
+.panel {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--outline);
+}
+
+.divider {
+  margin: 12px 0 0;
+  font-size: 12px;
+  text-align: center;
+  color: var(--muted);
 }
 
 #reset {

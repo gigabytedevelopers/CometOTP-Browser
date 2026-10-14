@@ -1,7 +1,20 @@
-// The popup: setting the password the first time, unlocking, and locking again. Which of the
-// three it shows is in `data-view` on the body. It also pings the background and records the
-// answer in `data-background`; the load test waits for both (tools/load-test.ts).
-import { lock, reset, setUp, state, unlock, type LockState } from '../lock/lock.js';
+// The popup: setting the password the first time, unlocking with it or a passkey, adding a
+// passkey, and locking again. Which of the three screens it shows is in `data-view` on the body.
+// It also pings the background and records the answer in `data-background`; the load test waits
+// for both (tools/load-test.ts).
+import {
+  addPasskey,
+  lock,
+  passkeyCredential,
+  removePasskey,
+  reset,
+  setUp,
+  state,
+  unlock,
+  unlockWithPasskey,
+  type LockState,
+} from '../lock/lock.js';
+import { PasskeyError, createPasskey, passkeyOutput, passkeysNeedTab, passkeysSupported } from '../lock/passkey.js';
 import { MIN_LENGTH, SCORE_LABELS, problem, score } from '../lock/strength.js';
 import { isPong } from '../messages.js';
 
@@ -22,6 +35,17 @@ function show(view: LockState): void {
   document.body.dataset.view = view;
   const focus = { new: 'setup-password', locked: 'unlock-password', unlocked: 'lock' }[view];
   element(focus).focus();
+  void showPasskey(view);
+}
+
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** Opens the passkey page in a tab, for Firefox, which closes popups when the prompt appears. */
+function passkeyTab(action: 'add' | 'unlock'): void {
+  void chrome.tabs.create({ url: chrome.runtime.getURL(`passkey/passkey.html?action=${action}`) });
+  window.close();
 }
 
 /** Runs `work` with `button` disabled and showing `busyText`, as Argon2 takes a moment. */
@@ -110,6 +134,67 @@ element('reset-submit').addEventListener('click', () => {
 // Locking.
 element('lock').addEventListener('click', () => {
   void lock().then(() => show('locked'));
+});
+
+// Passkeys, where the browser supports the PRF extension: shown on the locked screen once one is
+// added, and offered on the unlocked screen.
+const passkeyUnlock = element('passkey-unlock');
+const passkeyUnlockSubmit = element<HTMLButtonElement>('passkey-unlock-submit');
+const passkeyUnlockError = element('passkey-unlock-error');
+const passkeyPanel = element('passkey');
+const passkeyStatus = element('passkey-status');
+const passkeyAdd = element<HTMLButtonElement>('passkey-add');
+const passkeyRemove = element<HTMLButtonElement>('passkey-remove');
+const passkeyError = element('passkey-error');
+
+async function showPasskey(view: LockState): Promise<void> {
+  const supported = await passkeysSupported();
+  const credential = supported ? await passkeyCredential() : null;
+  passkeyUnlock.hidden = !(view === 'locked' && credential);
+  passkeyPanel.hidden = !(view === 'unlocked' && supported);
+  passkeyStatus.textContent = credential
+    ? 'A passkey can unlock CometOTP. Your password keeps working.'
+    : 'Unlock with Touch ID, Windows Hello, your phone or a security key instead of typing your password. Your password keeps working.';
+  passkeyAdd.textContent = credential ? 'Replace the passkey' : 'Add a passkey';
+  passkeyRemove.hidden = !credential;
+  if (view === 'locked' && credential) passkeyUnlockSubmit.focus();
+  document.body.dataset.passkey = credential ? 'added' : supported ? 'none' : 'unsupported';
+}
+
+passkeyUnlockSubmit.addEventListener('click', () => {
+  if (passkeysNeedTab()) return passkeyTab('unlock');
+  passkeyUnlockError.textContent = '';
+  void busy(passkeyUnlockSubmit, 'Waiting for the passkey…', async () => {
+    const credential = await passkeyCredential();
+    if (!credential) return false;
+    return unlockWithPasskey(await passkeyOutput(credential));
+  }).then(
+    (unlocked) => {
+      if (unlocked) show('unlocked');
+      else passkeyUnlockError.textContent = 'That passkey did not unlock CometOTP. Use your password.';
+    },
+    (error: unknown) => {
+      passkeyUnlockError.textContent = message(error);
+    },
+  );
+});
+
+passkeyAdd.addEventListener('click', () => {
+  if (passkeysNeedTab()) return passkeyTab('add');
+  passkeyError.textContent = '';
+  void busy(passkeyAdd, 'Waiting for the passkey…', async () => {
+    const { credential, prf } = await createPasskey();
+    await addPasskey(credential, prf);
+  }).then(
+    () => showPasskey('unlocked'),
+    (error: unknown) => {
+      passkeyError.textContent = error instanceof PasskeyError ? error.message : `Could not add the passkey: ${message(error)}`;
+    },
+  );
+});
+
+passkeyRemove.addEventListener('click', () => {
+  void removePasskey().then(() => showPasskey('unlocked'));
 });
 
 element('version').textContent = `Version ${chrome.runtime.getManifest().version}`;

@@ -31,6 +31,11 @@
 
       <section id="locked" hidden>
         <h1>CometOTP is locked</h1>
+        <div id="passkey-unlock" hidden>
+          <button id="passkey-unlock-submit" type="button">Unlock with passkey</button>
+          <p id="passkey-unlock-error" class="error" role="alert"></p>
+          <p class="divider">or use your password</p>
+        </div>
         <form id="unlock-form" novalidate>
           <label for="unlock-password">Password</label>
           <input id="unlock-password" type="password" autocomplete="current-password" required>
@@ -50,6 +55,13 @@
         <p class="lead">Pairing with your phone comes next.</p>
         <button id="lock" type="button">Lock now</button>
         <p class="hint">CometOTP locks itself after 15 minutes without use, when the computer locks and when the browser quits.</p>
+        <div id="passkey" class="panel" hidden>
+          <h2>Passkey</h2>
+          <p id="passkey-status" class="hint"></p>
+          <button id="passkey-add" class="secondary" type="button">Add a passkey</button>
+          <button id="passkey-remove" class="link" type="button" hidden>Remove the passkey</button>
+          <p id="passkey-error" class="error" role="alert"></p>
+        </div>
       </section>
 
       <p class="version" id="version"></p>
