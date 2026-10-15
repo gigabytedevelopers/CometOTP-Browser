@@ -1,7 +1,9 @@
 // A small zip writer, so packaging needs nothing beyond Node. The archive is deterministic: entries
-// sorted by path, every date set to 1980-01-01, no extra fields. The same files always give the
-// same bytes, so anyone can rebuild a published zip from the source and compare.
-import { crc32, deflateRawSync } from 'node:zlib';
+// sorted by path, every date set to 1980-01-01, no extra fields, and files stored as they are.
+// Compressed, they would depend on the version of zlib that Node bundles, and so differ between
+// machines. Stored, the same files always give the same bytes, so anyone can rebuild a published
+// zip from the source and compare it with a checksum.
+import { crc32 } from 'node:zlib';
 
 export interface ZipEntry {
   /** Relative, with `/` separators. */
@@ -13,7 +15,6 @@ const DOS_TIME = 0;
 const DOS_DATE = (0 << 9) | (1 << 5) | 1; // 1980-01-01
 const UTF8_NAMES = 0x0800;
 const STORED = 0;
-const DEFLATED = 8;
 
 export function zip(entries: readonly ZipEntry[]): Buffer {
   const sorted = [...entries].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
@@ -25,16 +26,14 @@ export function zip(entries: readonly ZipEntry[]): Buffer {
       throw new Error(`Not a relative path: ${entry.path}`);
     }
     const name = Buffer.from(entry.path, 'utf8');
-    const deflated = deflateRawSync(entry.data, { level: 9 });
-    const method = deflated.length < entry.data.length ? DEFLATED : STORED;
-    const body = method === DEFLATED ? deflated : Buffer.from(entry.data);
+    const body = Buffer.from(entry.data);
     const crc = crc32(entry.data);
 
     const local = Buffer.alloc(30);
     local.writeUInt32LE(0x04034b50, 0);
     local.writeUInt16LE(20, 4); // version needed: 2.0
     local.writeUInt16LE(UTF8_NAMES, 6);
-    local.writeUInt16LE(method, 8);
+    local.writeUInt16LE(STORED, 8);
     local.writeUInt16LE(DOS_TIME, 10);
     local.writeUInt16LE(DOS_DATE, 12);
     local.writeUInt32LE(crc, 14);
@@ -49,7 +48,7 @@ export function zip(entries: readonly ZipEntry[]): Buffer {
     central.writeUInt16LE(20, 4); // made by: MS-DOS, 2.0, so no Unix permissions are recorded
     central.writeUInt16LE(20, 6);
     central.writeUInt16LE(UTF8_NAMES, 8);
-    central.writeUInt16LE(method, 10);
+    central.writeUInt16LE(STORED, 10);
     central.writeUInt16LE(DOS_TIME, 12);
     central.writeUInt16LE(DOS_DATE, 14);
     central.writeUInt32LE(crc, 16);

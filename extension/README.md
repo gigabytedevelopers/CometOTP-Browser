@@ -171,7 +171,8 @@ That writes, under `extension/dist/`:
 
 Nothing is bundled or minified: the scripts in the zips are what `tsc` wrote, so store reviewers
 can read them as they are. The zips are deterministic, so the same source always gives the same
-bytes. Browsers cannot resolve package names, so the build copies the packages the extension
+bytes, on any machine: entries are sorted, dated 1980-01-01 and stored uncompressed, as compressed
+ones would depend on the version of zlib that Node bundles. Browsers cannot resolve package names, so the build copies the packages the extension
 imports into `lib/` and points the imports there: `@cometotp/protocol`, and the published builds
 of hash-wasm and qrcode-generator, unchanged.
 
