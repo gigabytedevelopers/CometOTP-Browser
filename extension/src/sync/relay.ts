@@ -104,24 +104,30 @@ export async function deleteChannel(relay: string, channel: Bytes, token: string
   await call(relay, 'DELETE', `/v1/pair/${toBase64Url(channel)}`, { token }).catch(() => undefined);
 }
 
-export type Download =
+export type Download = (
   | { kind: 'vault'; blob: Bytes; etag: string | null }
   | { kind: 'unchanged' }
   | { kind: 'empty' }
-  | { kind: 'gone' };
+  | { kind: 'gone' }
+) & {
+  /** The relay's clock, from its Date header, to compare codes' clock with (protocol §5). */
+  date: number | null;
+};
 
-/** Downloads the vault with the read token; "unchanged" when it still has `etag`. */
-export async function download(relay: string, vault: string, readToken: string, etag?: string): Promise<Download> {
+/** Downloads the vault with the read token; "unchanged" when it is still version `have`. */
+export async function download(relay: string, vault: string, readToken: string, have?: number): Promise<Download> {
   const response = await call(relay, 'GET', `/v1/vault/${vault}`, {
     token: readToken,
-    headers: etag ? { 'If-None-Match': etag } : {},
+    headers: have ? { 'If-None-Match': `"${have}"` } : {},
   });
+  const header = response.headers.get('Date');
+  const date = header && Number.isFinite(Date.parse(header)) ? Date.parse(header) : null;
   if (response.status === 200) {
-    return { kind: 'vault', blob: new Uint8Array(await response.arrayBuffer()), etag: response.headers.get('ETag') };
+    return { kind: 'vault', blob: new Uint8Array(await response.arrayBuffer()), etag: response.headers.get('ETag'), date };
   }
-  if (response.status === 304) return { kind: 'unchanged' };
-  if (response.status === 410) return { kind: 'gone' };
+  if (response.status === 304) return { kind: 'unchanged', date };
+  if (response.status === 410) return { kind: 'gone', date };
   const error = await failure(response);
-  if (error.code === 'empty') return { kind: 'empty' };
+  if (error.code === 'empty') return { kind: 'empty', date };
   throw error;
 }

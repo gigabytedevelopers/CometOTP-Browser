@@ -20,6 +20,11 @@ declare namespace chrome.runtime {
   /** Sends a message to the extension's other pages and its background; resolves with the reply. */
   function sendMessage(message: unknown): Promise<unknown>;
 
+  /** When the browser starts with the extension installed. */
+  const onStartup: {
+    addListener(callback: () => void): void;
+  };
+
   const onMessage: {
     /** Call `sendResponse` before returning to reply to the sender. */
     addListener(
@@ -54,4 +59,18 @@ declare namespace chrome.idle {
 declare namespace chrome.tabs {
   /** Opens a tab; no permission is needed for this. */
   function create(properties: { url: string }): Promise<unknown>;
+}
+
+declare namespace chrome.alarms {
+  interface Alarm {
+    name: string;
+  }
+
+  function get(name: string): Promise<Alarm | undefined>;
+
+  function create(name: string, info: { periodInMinutes: number; delayInMinutes?: number }): Promise<void> | void;
+
+  const onAlarm: {
+    addListener(callback: (alarm: Alarm) => void): void;
+  };
 }

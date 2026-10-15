@@ -32,9 +32,9 @@ describe('manifest', () => {
     });
   });
 
-  it('asks only for idle and storage, and keeps the strict content security policy', () => {
+  it('asks only for alarms, idle and storage, and keeps the strict content security policy', () => {
     for (const m of [chromium, firefox]) {
-      assert.deepEqual(m.permissions, ['idle', 'storage']);
+      assert.deepEqual(m.permissions, ['alarms', 'idle', 'storage']);
       for (const key of ['optional_permissions', 'host_permissions', 'optional_host_permissions']) {
         assert.equal(key in m, false, key);
       }

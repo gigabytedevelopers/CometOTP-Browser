@@ -13,11 +13,12 @@ export const GECKO_ID = 'cometotp@gigabytedevelopers.com';
 /**
  * Permissions the extension may request, each argued for in the pull request that added it, as
  * browsers may show them to people when they install. tools/check.ts refuses a build that asks
- * for anything else, host permissions included. Neither of these shows an install warning.
+ * for anything else, host permissions included. None of these shows an install warning.
+ * - alarms: to check for a newer vault every 15 minutes.
  * - idle: to lock after 15 minutes without input and when the computer locks.
  * - storage: for storage.session, which holds the local key in memory while unlocked.
  */
-export const ALLOWED_PERMISSIONS: readonly string[] = ['idle', 'storage'];
+export const ALLOWED_PERMISSIONS: readonly string[] = ['alarms', 'idle', 'storage'];
 
 /**
  * Only the extension's own scripts run on its pages: nothing inline, nothing remote. WebAssembly

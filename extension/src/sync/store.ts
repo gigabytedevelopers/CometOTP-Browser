@@ -1,13 +1,13 @@
 // The pairing as the extension keeps it (protocol §8). The relay, the vault id, the read token and
 // the highest version accepted stay outside the local key M, so the vault can be downloaded while
 // locked; the vault key V and the phone's name are sealed under M. The vault itself is kept as
-// downloaded, sealed under V.
-import { fromBase64UrlOfLength, fromUtf8, openVault, parsePayload, utf8, type Bytes } from '@cometotp/protocol';
+// downloaded, sealed under V (./sync.ts).
+import { fromBase64UrlOfLength, fromUtf8, utf8, type Bytes } from '@cometotp/protocol';
 
 import { openPrivate, sealPrivate, type Sealed } from '../lock/crypto.js';
 import { deleteRecord, getRecord, putRecord } from '../lock/storage.js';
 import type { Paired } from '../pair/pairing.js';
-import { OFFICIAL_RELAY, download } from './relay.js';
+import { OFFICIAL_RELAY } from './relay.js';
 
 export interface PairingRecord {
   v: 1;
@@ -73,24 +73,10 @@ export async function forgetPairing(): Promise<void> {
   await deleteRecord(BLOB);
 }
 
-/**
- * Downloads the vault and checks that it opens with V, keeping it as downloaded and raising the
- * version accepted. Returns how many services it holds, or null when the phone has not uploaded
- * one yet or the vault is gone.
- */
-export async function downloadVault(localKey: Bytes): Promise<number | null> {
+/** Raises the version accepted from `vault`, unless the pairing changed meanwhile. */
+export async function acceptVersion(vault: string, version: number): Promise<void> {
   const record = await pairingRecord();
-  const secret = await vaultSecret(localKey);
-  if (!record || !secret) return null;
-  const result = await download(record.relay, record.vault, record.read);
-  if (result.kind !== 'vault') return null;
-  const id = fromBase64UrlOfLength(record.vault, 16, 'The vault id');
-  const key = fromBase64UrlOfLength(secret.key, 32, 'The vault key');
-  const { version, json } = await openVault(key, id, result.blob, record.version ? { minVersion: record.version } : {});
-  const { payload } = parsePayload(json);
-  await putRecord(BLOB, { version, etag: result.etag, blob: result.blob });
-  await putRecord(PAIRING, { ...record, version });
-  return payload.services.length;
+  if (record?.vault === vault && version > record.version) await putRecord(PAIRING, { ...record, version });
 }
 
 /** The relay to pair through: the person's own, or the official one. */

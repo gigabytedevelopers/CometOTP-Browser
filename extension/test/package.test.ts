@@ -48,6 +48,7 @@ const EXPECTED = [
   'popup/popup.js',
   'sync/relay.js',
   'sync/store.js',
+  'sync/sync.js',
   'sync/vault.js',
 ];
 

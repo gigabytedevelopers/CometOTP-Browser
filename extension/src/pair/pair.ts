@@ -5,7 +5,8 @@
 import { localKey, state } from '../lock/lock.js';
 import * as relayApi from '../sync/relay.js';
 import { isRelay, relayUrl } from '../sync/relay.js';
-import { chooseRelay, chosenRelay, downloadVault, pairingRecord, storePairing, vaultSecret } from '../sync/store.js';
+import { chooseRelay, chosenRelay, pairingRecord, storePairing, vaultSecret } from '../sync/store.js';
+import { services, sync } from '../sync/sync.js';
 import { thisBrowser } from './browser-name.js';
 import { BrowserPairing, type PairingFailure, type PairingStep } from './pairing.js';
 import { drawQr } from './qr.js';
@@ -120,8 +121,8 @@ async function start(): Promise<void> {
       await storePairing(paired, key);
     },
     async download() {
-      const key = await localKey();
-      return key ? downloadVault(key) : null;
+      await sync();
+      return (await services())?.payload.services.length ?? null;
     },
     onStep: (step) => {
       if (mine === generation) onStep(step);
