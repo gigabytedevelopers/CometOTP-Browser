@@ -14,6 +14,7 @@ import { unzip } from './unzip.js';
 
 const EXPECTED = [
   'background.js',
+  'fill/detect.js',
   'icons/icon-128.png',
   'icons/icon-16.png',
   'icons/icon-32.png',
