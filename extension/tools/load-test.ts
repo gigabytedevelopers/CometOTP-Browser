@@ -187,9 +187,8 @@ async function exercisePasskey(evaluate: Evaluate, useAuthenticator: (prf: boole
 
   await evaluate(click('lock'));
   await view(evaluate, 'locked');
-  if ((await evaluate("String(document.getElementById('passkey-unlock').hidden)")) !== 'false') {
-    throw new Error('The locked popup does not offer the passkey');
-  }
+  // The popup offers the passkey once it has read the lock record, a moment after it shows.
+  await attribute(evaluate, 'the locked popup to offer the passkey', "String(document.getElementById('passkey-unlock').hidden)", (v) => v === 'false');
   await evaluate(click('passkey-unlock-submit'));
   await view(evaluate, 'unlocked');
   if ((await evaluate(READ_SESSION_KEY)) !== key) throw new Error('The passkey unlocked to a different local key');
