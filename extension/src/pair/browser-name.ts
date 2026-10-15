@@ -1,5 +1,6 @@
-// How the phone will show this browser, such as "Chrome on macOS" (protocol §3.1, at most 64 bytes).
-// It can be renamed on the phone.
+// How the phone will show this browser, such as "Chrome on macOS" (protocol §3.1, at most 64 bytes),
+// unless the person names it in the extension's settings before pairing. It can be renamed on the
+// phone.
 
 interface UserAgentData {
   brands?: { brand: string }[];

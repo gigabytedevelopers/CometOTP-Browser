@@ -7,7 +7,7 @@ import * as relayApi from '../sync/relay.js';
 import { isRelay, relayUrl } from '../sync/relay.js';
 import { chooseRelay, chosenRelay, pairingRecord, storePairing, vaultSecret } from '../sync/store.js';
 import { services, sync } from '../sync/sync.js';
-import { thisBrowser } from './browser-name.js';
+import { pairingName } from '../settings/prefs.js';
 import { BrowserPairing, type PairingFailure, type PairingStep } from './pairing.js';
 import { drawQr } from './qr.js';
 
@@ -113,7 +113,7 @@ async function start(): Promise<void> {
   element('relay-name').textContent = new URL(relay).host;
   const current = new BrowserPairing({
     relay,
-    browserName: thisBrowser(),
+    browserName: await pairingName(),
     api: relayApi,
     async store(paired) {
       const key = await localKey();

@@ -60,6 +60,8 @@ const EXPECTED = [
   'popup/popup.css',
   'popup/popup.html',
   'popup/popup.js',
+  'settings/choices.js',
+  'settings/prefs.js',
   'sync/relay.js',
   'sync/store.js',
   'sync/sync.js',

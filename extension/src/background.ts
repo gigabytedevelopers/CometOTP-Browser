@@ -1,6 +1,6 @@
 // The extension's background: a service worker in Chromium and a background script in Firefox,
-// both loaded as a module. It locks the extension after 15 minutes without input and when the
-// computer locks (Firefox does not report the latter, so there the idle time applies). Quitting
+// both loaded as a module. It locks the extension after a time without input (15 minutes unless
+// chosen in its settings) and when the computer locks (Firefox does not report the latter, so there the idle time applies). Quitting
 // the browser locks it too, as storage.session is cleared. It keeps the vault current, downloading
 // at start-up and every 15 minutes (protocol §7.2). Once the person allows access to sites, it
 // runs the content script that puts a CometOTP button in code fields, and serves its menus. It also
@@ -11,12 +11,12 @@ import { chooseService, claimMenu, listMenu, mayFill, openMenu, passOn } from '.
 import { isFillChoose, isFillClaim, isFillClose, isFillHere, isFillList, isFillOpen, isFillSize } from './fill/messages.js';
 import { lock } from './lock/lock.js';
 import { isPing, type Pong } from './messages.js';
+import { autoLockMinutes } from './settings/prefs.js';
 import { sync } from './sync/sync.js';
 
-/** Seconds without input before the extension locks itself. */
-const AUTO_LOCK_SECONDS = 15 * 60;
-
-chrome.idle.setDetectionInterval(AUTO_LOCK_SECONDS);
+// The time without input before locking is a setting (15 minutes unless chosen), set again each
+// time the background starts; the settings page sets it at once when it changes.
+void autoLockMinutes().then((minutes) => chrome.idle.setDetectionInterval(minutes * 60));
 chrome.idle.onStateChanged.addListener((state) => {
   if (state !== 'active') void lock();
 });
