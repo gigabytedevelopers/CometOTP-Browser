@@ -436,7 +436,8 @@ This part does not affect the other parties; it records the design for review.
     `utf8("CometOTP lock v1 passkey")` as the associated data. The passkey belongs to the
     extension's own origin, and user verification is required.
 - The relay URL, vault id, read token and highest accepted version stay outside `M`, so the
-  extension can download while locked; the blob itself stays sealed under `V`.
+  extension can download while locked; the blob itself stays sealed under `V`. `V` and the
+  phone's name are sealed under `M`.
 - Each value sealed under `M` has `utf8("CometOTP local v1") ‖ lp(utf8(name))` as its associated
   data, so stored values cannot be swapped for one another.
 - While unlocked, `M` is kept in `storage.session`, which is memory only and closed to content

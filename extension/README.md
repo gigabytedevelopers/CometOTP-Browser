@@ -1,9 +1,35 @@
 # CometOTP browser extension
 
 One TypeScript source, built as a Manifest V3 extension for Chromium (Chrome, Edge, Brave, Opera,
-Vivaldi) and for Firefox. So far it has its own lock: a password set on first use, locked and
-unlocked from the popup. Pairing, the vault and the codes come in the next pull requests
-([design](../docs/design.md), §10).
+Vivaldi) and for Firefox. So far it has its own lock (a password set on first use, and optionally a
+passkey) and pairs with CometOTP on a phone, keeping an encrypted copy of its services. Showing
+the codes comes in the next pull requests ([design](../docs/design.md), §10).
+
+## Pairing
+
+**Pair with your phone** in the popup opens a tab (`pair/pair.html`), which stays open while you
+use your phone. It does the browser's side of protocol §3.4 (`src/pair/pairing.ts`):
+
+1. It makes a pairing channel on the relay and shows its code as a QR code, with a new one each
+   time it expires unanswered (two minutes).
+2. When CometOTP scans it and says hello, it checks the hello and shows the six digits and the
+   phone's name: **My phone shows the same code** or **Cancel**. It watches for the phone
+   cancelling meanwhile.
+3. On the confirm, it waits for the phone to send the vault's details. It keeps them as
+   protocol §8 says, then says done and downloads the vault, checking that it opens.
+
+Every failure says what happened and what to do: the relay cannot be reached, someone cancelled
+on either side, it took too long, or a message could not be verified, which may mean someone else
+scanned the code. Nothing is kept unless the pairing finishes.
+
+**The relay** is the official one, `https://relay.gigabytedevelopers.com`, unless you choose your
+own under the code ([running your own](../docs/self-hosting.md)). Its address goes to the phone in
+the code. http is accepted for this computer and the local network, for testing; CometOTP accepts
+it only in its debug builds.
+
+The QR code is drawn by [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator)
+2.0.4 (MIT), whose published ES module build is copied in unchanged, its licence in its header,
+under `lib/qrcode-generator/`.
 
 ## The lock
 
@@ -56,8 +82,8 @@ That writes, under `extension/dist/`:
 Nothing is bundled or minified: the scripts in the zips are what `tsc` wrote, so store reviewers
 can read them as they are. The zips are deterministic, so the same source always gives the same
 bytes. Browsers cannot resolve package names, so the build copies the packages the extension
-imports into `lib/` and points the imports there: `@cometotp/protocol`, and hash-wasm's published
-build, unchanged.
+imports into `lib/` and points the imports there: `@cometotp/protocol`, and the published builds
+of hash-wasm and qrcode-generator, unchanged.
 
 To try a build by hand:
 
@@ -107,8 +133,10 @@ npm run load-test --workspace @cometotp/extension
   APIs used are declared by hand in `src/chrome.d.ts`, so the list shows what the extension
   touches and no types package is needed.
 - **Tests** (`test/`): the manifests, the zip writer (read back by a reader written from the
-  format's description), what each package holds, the lock's cryptography and the strength
-  estimate.
+  format's description), what each package holds, the lock's cryptography, the strength estimate,
+  the browser's name, and pairing. Pairing runs against a relay kept in memory and a phone that
+  does its side with the protocol package: the happy path, a code that expires unanswered, and
+  every way it can fail.
 - **Package check** (`tools/check.ts`), the extension's lint. It checks that the manifest asks for no
   permission outside `ALLOWED_PERMISSIONS`, keeps the content security policy, and names only
   files that exist. It also checks that pages run no inline script or handler and load nothing
@@ -121,7 +149,10 @@ npm run load-test --workspace @cometotp/extension
   the same key. In Chrome it then attaches a virtual authenticator with PRF, adds a passkey, and
   unlocks with it to the same key; an authenticator without PRF is refused, and the password
   still works. WebDriver BiDi has no virtual authenticator yet, so in Firefox it only checks
-  whether passkeys are offered. Chrome is driven through the DevTools protocol
+  whether passkeys are offered. Last, in both browsers, it starts the relay from this repository
+  and pairs through it with a stand-in phone that reads the code from the page. It checks the
+  six digits, uploads a vault and finishes. The page must end paired with that vault's service,
+  and the vault key must be kept sealed. Chrome is driven through the DevTools protocol
   (`Extensions.loadUnpacked`), Firefox through WebDriver BiDi (`webExtension.install`). A browser
   that is not installed is skipped, except in CI, which runs both.
 
