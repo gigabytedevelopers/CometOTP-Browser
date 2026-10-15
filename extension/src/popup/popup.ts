@@ -14,6 +14,7 @@ import {
   unlockWithPasskey,
   type LockState,
 } from '../lock/lock.js';
+import { hasSiteAccess, removeSiteAccess, requestSiteAccess } from '../fill/access.js';
 import { PasskeyError, createPasskey, passkeyOutput, passkeysNeedTab, passkeysSupported } from '../lock/passkey.js';
 import { pairingRecord } from '../sync/store.js';
 import { clearNotice, notice, sync } from '../sync/sync.js';
@@ -55,6 +56,7 @@ async function showPairing(): Promise<void> {
   unpaired.hidden = paired;
   codesPanel.hidden = !paired;
   document.body.dataset.paired = paired ? 'yes' : 'no';
+  void showFilling(paired);
   if (!paired) {
     clearCodes();
     const said = await notice();
@@ -70,6 +72,37 @@ async function showPairing(): Promise<void> {
   if (await pairingRecord()) await renderCodes();
   else await showPairing();
 }
+
+// Filling codes into sites, which needs access to them: asked for only here, never at install.
+const filling = element('filling');
+const fillingStatus = element('filling-status');
+const fillingOn = element<HTMLButtonElement>('filling-on');
+const fillingOff = element<HTMLButtonElement>('filling-off');
+
+async function showFilling(paired: boolean): Promise<void> {
+  filling.hidden = !paired;
+  if (!paired) return;
+  const on = await hasSiteAccess();
+  fillingStatus.textContent = on
+    ? 'On: code fields on sites show a CometOTP button. Choose a service there to fill its code.'
+    : 'Show a CometOTP button in code fields on sites, to fill a code without copying it. Your browser will ask to let CometOTP read and change sites: it only looks for code fields, and a site gets only the code you choose.';
+  fillingOn.hidden = on;
+  fillingOff.hidden = !on;
+  document.body.dataset.filling = on ? 'on' : 'off';
+}
+
+// The request must start in the click itself. Firefox closes the popup while it asks; the
+// background then runs the content script once access is granted.
+fillingOn.addEventListener('click', () => {
+  void requestSiteAccess()
+    .catch(() => false)
+    .then(() => showFilling(true));
+});
+fillingOff.addEventListener('click', () => {
+  void removeSiteAccess()
+    .catch(() => false)
+    .then(() => showFilling(true));
+});
 
 pairButton.addEventListener('click', () => {
   void chrome.tabs.create({ url: chrome.runtime.getURL('pair/pair.html') });

@@ -4,9 +4,9 @@
 // the lock as a person would, through the popup (see exerciseLock), and in Chrome adds a passkey
 // on a virtual authenticator with the PRF extension and unlocks with it (see exercisePasskey).
 // Last, it pairs with a stand-in phone through a relay it starts on this computer (see
-// exercisePairing), then checks the codes against the protocol package's, that a change on the
-// phone reaches the popup, and that the phone removing the browser wipes its copy (see
-// exerciseSync).
+// exercisePairing), fills codes into a page it serves (see exerciseFill), then checks the codes
+// against the protocol package's, that a change on the phone reaches the popup, and that the
+// phone removing the browser wipes its copy (see exerciseSync).
 //
 // - Chrome, driven through the DevTools protocol over a pipe: Extensions.loadUnpacked, which
 //   needs --enable-unsafe-extension-debugging.
@@ -15,12 +15,17 @@
 //   MOZ_REMOTE_ALLOW_SYSTEM_ACCESS lets the test open that address, which WebDriver otherwise
 //   refuses as privileged (the --remote-allow-system-access flag it replaces is gone in 159).
 //
+// Neither can answer the browser's prompt for access to sites, or click in an extension page as a
+// person would, which asking needs. So both load a copy of the build that has access already, as
+// if the person had turned filling on (see withSiteAccess).
+//
 // Usage: node dist/tools/load-test.js [--chrome <path>] [--firefox <path>] [--require-all]
 // Without a path, the usual install locations are tried, and a browser that is not found is
 // skipped, unless --require-all is given (as in CI).
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer as createHttpServer } from 'node:http';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -254,7 +259,16 @@ abstract class Connection {
   send(method: string, params: object = {}, sessionId?: string): Promise<any> {
     const id = this.next++;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      // A call into a frame that goes away meanwhile may never be answered.
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`No answer to ${method}`));
+      }, TIMEOUT_MS / 2);
+      timer.unref();
+      this.pending.set(id, {
+        resolve: (value) => (clearTimeout(timer), resolve(value)),
+        reject: (error) => (clearTimeout(timer), reject(error)),
+      });
       this.write(JSON.stringify(sessionId ? { id, method, params, sessionId } : { id, method, params }));
     });
   }
@@ -303,8 +317,24 @@ function stop(child: ChildProcess, profile: string): void {
   }
 }
 
-async function loadInChrome(binary: string, dir: string, relay: string): Promise<void> {
+/**
+ * A copy of the build with access to sites already granted, as it would be once the person turned
+ * filling on: the manifest asks for it outright instead of optionally.
+ */
+function withSiteAccess(dir: string): string {
+  const copy = mkdtempSync(join(tmpdir(), 'cometotp-build-'));
+  cpSync(dir, copy, { recursive: true });
+  const path = join(copy, 'manifest.json');
+  const m = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+  m.host_permissions = m.optional_host_permissions;
+  delete m.optional_host_permissions;
+  writeFileSync(path, JSON.stringify(m, null, 2));
+  return copy;
+}
+
+async function loadInChrome(binary: string, built: string, relay: string, pages: Pages): Promise<void> {
   const profile = mkdtempSync(join(tmpdir(), 'cometotp-chrome-'));
+  const dir = withSiteAccess(built);
   const args = [
     '--headless=new',
     '--remote-debugging-pipe',
@@ -368,11 +398,54 @@ async function loadInChrome(binary: string, dir: string, relay: string): Promise
       await cdp.send('Page.navigate', { url: `chrome-extension://${id}/${path}` }, sessionId);
       await delay(500);
     };
-    await exerciseSync(evaluate, openChrome, await exercisePairing(evaluate, openChrome, relay));
+    const phone = await exercisePairing(evaluate, openChrome, relay);
+
+    // Pages act as focused, as in a window in front. Frames from elsewhere run as targets of their
+    // own: Chrome lists those there are, and each is attached to once.
+    await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }, sessionId);
+    const frameSessions = new Map<string, string>();
+    const inFrame = async (part: string, expression: string) => {
+      const { targetInfos } = await cdp.send('Target.getTargets');
+      const frame = (targetInfos as { targetId: string; type: string; url: string }[]).find((t) => t.type === 'iframe' && t.url.includes(part));
+      if (!frame) return undefined;
+      let frameSession = frameSessions.get(frame.targetId);
+      if (!frameSession) {
+        ({ sessionId: frameSession } = await cdp.send('Target.attachToTarget', { targetId: frame.targetId, flatten: true }));
+        frameSessions.set(frame.targetId, frameSession!);
+      }
+      const reply = await cdp.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }, frameSession);
+      if (reply.exceptionDetails) throw new Error(JSON.stringify(reply.exceptionDetails));
+      return typeof reply.result?.value === 'string' ? (reply.result.value as string) : undefined;
+    };
+    await exerciseFill(
+      {
+        evaluate,
+        open: openChrome,
+        visit: async (url) => {
+          await cdp.send('Page.navigate', { url }, sessionId);
+          await delay(500);
+        },
+        click: async (x, y) => {
+          for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) {
+            await cdp.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 }, sessionId);
+          }
+        },
+        inFrame,
+        frames: async () => {
+          const { targetInfos } = await cdp.send('Target.getTargets');
+          return (targetInfos as { type: string; url: string }[]).filter((t) => t.type === 'iframe').map((t) => t.url);
+        },
+      },
+      phone,
+      pages,
+      false,
+    );
+    await exerciseSync(evaluate, openChrome, phone);
     const errors = cdp.events.filter((e) => e.method === 'Runtime.exceptionThrown' && e.sessionId === sessionId);
     if (errors.length) throw new Error(`A page threw: ${JSON.stringify(errors[0]!.params.exceptionDetails)}`);
   } finally {
     stop(child, profile);
+    rmSync(dir, { recursive: true, force: true });
   }
 }
 
@@ -390,8 +463,9 @@ function freePort(): Promise<number> {
 /** What the Firefox popup said about passkeys, for the summary. */
 let firefoxPasskeys = '';
 
-async function loadInFirefox(binary: string, dir: string, relay: string): Promise<void> {
+async function loadInFirefox(binary: string, built: string, relay: string, pages: Pages): Promise<void> {
   const profile = mkdtempSync(join(tmpdir(), 'cometotp-firefox-'));
+  const dir = withSiteAccess(built);
   const prefs = {
     'extensions.webextensions.uuids': JSON.stringify({ [GECKO_ID]: FIREFOX_UUID }),
     'browser.shell.checkDefaultBrowser': false,
@@ -445,13 +519,60 @@ async function loadInFirefox(binary: string, dir: string, relay: string): Promis
       const openFirefox = async (path: string) => {
         await bidi.send('browsingContext.navigate', { context, url: `moz-extension://${FIREFOX_UUID}/${path}`, wait: 'complete' });
       };
-      await exerciseSync(evaluate, openFirefox, await exercisePairing(evaluate, openFirefox, relay));
+      const phone = await exercisePairing(evaluate, openFirefox, relay);
+      const tree = async () => {
+        const { contexts } = await bidi.send('browsingContext.getTree', { root: context });
+        const all: { context: string; url: string; children?: unknown[] }[] = [];
+        const walk = (nodes: any[]) => nodes.forEach((node) => (all.push(node), walk(node.children ?? [])));
+        walk(contexts);
+        return all.filter((node) => node.context !== context);
+      };
+      const inFrame = async (part: string, expression: string) => {
+        const frame = (await tree()).find((node) => node.url.includes(part));
+        if (!frame) return undefined;
+        const reply = await bidi.send('script.evaluate', { expression, target: { context: frame.context }, awaitPromise: true });
+        if (reply.type === 'exception') throw new Error(JSON.stringify(reply.exceptionDetails));
+        return reply.result?.type === 'string' ? (reply.result.value as string) : undefined;
+      };
+      await exerciseFill(
+        {
+          evaluate,
+          open: openFirefox,
+          visit: async (url) => {
+            await bidi.send('browsingContext.navigate', { context, url, wait: 'complete' });
+          },
+          click: async (x, y) => {
+            await bidi.send('input.performActions', {
+              context,
+              actions: [
+                {
+                  type: 'pointer',
+                  id: 'mouse',
+                  parameters: { pointerType: 'mouse' },
+                  actions: [
+                    { type: 'pointerMove', x, y },
+                    { type: 'pointerDown', button: 0 },
+                    { type: 'pointerUp', button: 0 },
+                  ],
+                },
+              ],
+            });
+          },
+          inFrame,
+          frames: async () => (await tree()).map((node) => node.url),
+        },
+        phone,
+        pages,
+        true,
+      );
+      await exerciseSync(evaluate, openFirefox, phone);
       await bidi.send('session.end').catch(() => undefined);
     } finally {
       socket.close();
     }
   } finally {
     stop(child, profile);
+    rmSync(dir, { recursive: true, force: true });
   }
 }
 
@@ -614,11 +735,207 @@ async function exerciseSync(evaluate: Evaluate, open: (path: string) => Promise<
   if ((await evaluate("String(document.querySelectorAll('#services li').length)")) !== '0') throw new Error('The popup kept the rows');
 }
 
+/** Pages to fill codes into, served on 127.0.0.1, with a frame from localhost: another host. */
+interface Pages {
+  origin: string;
+  stop: () => void;
+}
+
+/**
+ * A sign-in page's content security policy, strict as many are: nothing from extensions is
+ * allowed. The page's one script records the events it sees, to say what happened if a step fails.
+ */
+const PAGE_CSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; frame-src 'self' http://localhost:*";
+
+const EVENTS_SCRIPT = `window.seen = [];
+for (const type of ['pointerdown', 'mousedown', 'mouseup', 'click', 'focusin', 'focusout', 'keydown']) {
+  document.addEventListener(type, (e) => {
+    const t = e.target;
+    window.seen.push(Math.round(performance.now()) + ' ' + type + (e.isTrusted ? '' : ' (untrusted)') + ' ' + (t.id || t.localName || '?'));
+  }, true);
+}`;
+
+async function startPages(): Promise<Pages> {
+  const port = await freePort();
+  const frame = `<!doctype html><meta charset="utf-8"><title>Frame</title>
+<label for="frame-otp">Authentication code</label> <input id="frame-otp" autocomplete="one-time-code" maxlength="6">`;
+  const page = `<!doctype html><meta charset="utf-8"><title>Sign in</title>
+<script src="/events.js"></script>
+<form style="font-size: 16px">
+  <p><label for="email">Email</label> <input id="email" type="email" name="email" autocomplete="username"></p>
+  <p><label for="otp">Authentication code</label>
+    <input id="otp" name="app_otp" autocomplete="one-time-code" inputmode="numeric" maxlength="6" style="width: 240px; padding: 6px"></p>
+  <div id="boxes">${'<input maxlength="1" inputmode="numeric" style="width: 24px; margin: 2px">'.repeat(6)}</div>
+</form>
+<iframe id="same" src="/frame.html" style="width: 400px; height: 60px"></iframe>
+<iframe id="other" src="http://localhost:${port}/frame.html" style="width: 400px; height: 60px"></iframe>`;
+  const server = createHttpServer((request, response) => {
+    if (request.url === '/events.js') {
+      response.writeHead(200, { 'Content-Type': 'text/javascript' }).end(EVENTS_SCRIPT);
+      return;
+    }
+    const body = request.url === '/fill.html' ? page : request.url === '/frame.html' ? frame : null;
+    if (body === null) {
+      response.writeHead(404).end();
+      return;
+    }
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': PAGE_CSP }).end(body);
+  });
+  await new Promise<void>((resolve) => server.listen(port, '127.0.0.1', resolve));
+  return { origin: `http://127.0.0.1:${port}`, stop: () => server.close() };
+}
+
+/** How exerciseFill drives a browser's tab. */
+interface FillDriver {
+  /** Runs an expression in the tab's page. */
+  evaluate: Evaluate;
+  /** Opens an extension page in the tab. */
+  open(path: string): Promise<void>;
+  /** Opens a web page in the tab. */
+  visit(url: string): Promise<void>;
+  /** A person's click at a point of the tab, in CSS pixels. */
+  click(x: number, y: number): Promise<void>;
+  /** Runs an expression in a frame of the tab whose address contains `part`; undefined without one. */
+  inFrame(part: string, expression: string): Promise<string | undefined>;
+  /** The addresses of the tab's frames, to say what was there when something fails. */
+  frames(): Promise<string[]>;
+}
+
+/** Whether the page holds the CometOTP button: its host element, as the rest is in a closed shadow root. */
+const HAS_BUTTON = "document.querySelector('cometotp-fill') ? 'yes' : 'no'";
+
+/** The centre of an element's box, from an expression for the element. */
+async function centre(evaluate: Evaluate, element: string): Promise<{ x: number; y: number; right: number }> {
+  const rect = JSON.parse(
+    (await evaluate(`(() => { const e = ${element}; e.scrollIntoView({ block: 'center' }); return JSON.stringify(e.getBoundingClientRect()); })()`))!,
+  ) as { left: number; top: number; width: number; height: number; right: number };
+  return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2), right: rect.right };
+}
+
+/** Whether `shown` is the service's code at some moment from `since` (milliseconds) to now. */
+async function codeSince(shown: string | undefined, service: Service, since: number): Promise<boolean> {
+  for (let time = Math.floor(since / 1000) - 1; time <= Date.now() / 1000 + service.period; time += service.period) {
+    if (time <= Date.now() / 1000 && shown === (await generateCode(service, time))) return true;
+  }
+  return shown === (await generateCode(service, Date.now() / 1000));
+}
+
+/**
+ * Filling codes into a page this test serves, under a strict content security policy. The popup
+ * says filling is on (the build has access to sites already). Focusing the page's code field shows the
+ * CometOTP button, and the email field does not. The button opens the menu: on 127.0.0.1 nothing is
+ * offered at first, a search finds the service, and choosing it fills the field with its code and
+ * links it to the site. Then six one-digit boxes get one digit each, from the service now offered
+ * first; a field in a frame from the same host gets the button, and one from another host does
+ * not; Escape closes the menu. Last, where the browser lets the extension give access back
+ * (Firefox: Chrome keeps access the manifest asks for), Turn off removes the button.
+ */
+async function exerciseFill(driver: FillDriver, phone: PhoneVault, pages: Pages, canTurnOff: boolean): Promise<void> {
+  const { evaluate } = driver;
+  const service = phone.services[0]!;
+  await driver.open('popup/popup.html');
+  await attribute(evaluate, 'the popup to say filling is on', 'document.body.dataset.filling', (v) => v === 'on');
+
+  const button = async (field: string) => {
+    await evaluate(`(${field}.focus(), 'focused')`);
+    await attribute(evaluate, `the button in ${field}`, HAS_BUTTON, (v) => v === 'yes');
+  };
+  const menu = (expression: string) => driver.inFrame('fill/menu.html', expression);
+  /** Waits for the menu, saying what it shows instead if it never gets there. */
+  const inMenu = async (what: string, expression: string, expected: (value: string | undefined) => boolean) => {
+    try {
+      await waitFor(what, async () => (expected(await menu(expression)) ? true : undefined));
+    } catch (error) {
+      const shows = await menu("document.getElementById('menu')?.innerText ?? ''").catch(() => undefined);
+      throw new Error(`${error instanceof Error ? error.message : String(error)}; the menu shows ${JSON.stringify(shows)}`);
+    }
+  };
+  const openMenu = async (field: string, outside: boolean) => {
+    const box = await centre(evaluate, field);
+    // The button sits at the end of a wide field, and just after a narrow one.
+    await driver.click(Math.round(outside ? box.right + 4 + 12 : box.right - 6 - 12), box.y);
+    await inMenu('the menu', "document.getElementById('site').textContent", (v) => v === '127.0.0.1');
+  };
+  /** The open menu's one-time name, to tell it from a menu opened after it if one stays. */
+  let chosenFrom: string | undefined;
+  const menuGone = async () => {
+    try {
+      await waitFor('the menu to close', async () => ((await menu('location.href')) === undefined ? true : undefined));
+    } catch (error) {
+      const shows = await menu("document.getElementById('menu')?.innerText ?? ''").catch(() => undefined);
+      const fields = await evaluate("JSON.stringify([...document.querySelectorAll('input')].map((i) => i.value))").catch(() => undefined);
+      const hosts = await evaluate("String(document.querySelectorAll('cometotp-fill').length)").catch(() => undefined);
+      const frames = await driver.frames().catch(() => []);
+      const seen = await evaluate('JSON.stringify((window.seen ?? []).slice(-40))').catch(() => undefined);
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}; the menu shows ${JSON.stringify(shows)}; ` +
+          `the fields hold ${fields}; ${hosts} button host(s); frames ${JSON.stringify(frames)}; chosen from menu ${chosenFrom}; ` +
+          `the page saw ${seen}`,
+      );
+    }
+  };
+
+  await driver.visit(`${pages.origin}/fill.html`);
+  await button("document.getElementById('otp')");
+  await evaluate("(document.getElementById('email').focus(), 'focused')");
+  await attribute(evaluate, 'no button in the email field', HAS_BUTTON, (v) => v === 'no');
+
+  // Nothing is linked to this site yet, and "GitHub" does not name it: a search finds the service.
+  await button("document.getElementById('otp')");
+  await openMenu("document.getElementById('otp')", false);
+  await inMenu('the menu to offer nothing', "String(document.getElementById('none').hidden)", (v) => v === 'false');
+  await menu(`(() => { const s = document.getElementById('search'); s.value = 'git'; s.dispatchEvent(new Event('input')); return 'searched'; })()`);
+  await inMenu('the search to find the service', "String(document.querySelectorAll('#found .service').length)", (v) => v === '1');
+  let chosen = Date.now();
+  chosenFrom = await menu('location.hash');
+  await menu("(document.querySelector('#found .service').click(), 'chosen')");
+  await menuGone();
+  const filled = await evaluate("document.getElementById('otp').value");
+  if (!(await codeSince(filled, service, chosen))) throw new Error(`The field holds "${filled}", not the service's code`);
+  if ((await evaluate("document.getElementById('email').value")) !== '') throw new Error('A code went into another field');
+
+  // The boxes: the service is now linked to this site, so it is offered first.
+  await button("document.querySelector('#boxes input')");
+  await openMenu("document.querySelector('#boxes input:last-child')", true);
+  await inMenu('the menu to offer the linked service', "document.querySelector('#offered .issuer')?.textContent", (v) => v === 'GitHub');
+  chosen = Date.now();
+  chosenFrom = await menu('location.hash');
+  await menu("(document.querySelector('#offered .service').click(), 'chosen')");
+  await menuGone();
+  const digits = await evaluate("[...document.querySelectorAll('#boxes input')].map((i) => i.value).join('')");
+  if (!(await codeSince(digits, service, chosen))) throw new Error(`The boxes hold "${digits}", not the service's code`);
+
+  // Escape closes the menu.
+  await button("document.getElementById('otp')");
+  await openMenu("document.getElementById('otp')", false);
+  await menu("(document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })), 'pressed')");
+  await menuGone();
+
+  // A frame from this host gets the button; one from another host does not.
+  const same = "document.getElementById('same').contentDocument";
+  await evaluate(`(${same}.getElementById('frame-otp').focus(), 'focused')`);
+  await attribute(evaluate, 'the button in a frame from this host', `${same}.querySelector('cometotp-fill') ? 'yes' : 'no'`, (v) => v === 'yes');
+  await waitFor('the frame from another host', () => driver.inFrame('localhost', "(document.getElementById('frame-otp').focus(), 'focused')"));
+  await delay(1500);
+  if ((await driver.inFrame('localhost', HAS_BUTTON)) !== 'no') throw new Error('A frame from another host got the button');
+
+  await driver.open('popup/popup.html');
+  if ((await evaluate(readRecord('site-links'))) === 'null') throw new Error('The service was not linked to the site');
+  if (canTurnOff) {
+    await evaluate(click('filling-off'));
+    await attribute(evaluate, 'access to sites to be removed', 'document.body.dataset.filling', (v) => v === 'off');
+    await driver.visit(`${pages.origin}/fill.html`);
+    await evaluate("(document.getElementById('otp').focus(), 'focused')");
+    await delay(1500);
+    if ((await evaluate(HAS_BUTTON)) !== 'no') throw new Error('The button stayed after filling was turned off');
+  }
+}
+
 const browsers: {
   name: string;
   target: Target;
   binary: string | undefined;
-  load: (binary: string, dir: string, relay: string) => Promise<void>;
+  load: (binary: string, dir: string, relay: string, pages: Pages) => Promise<void>;
 }[] = [
   {
     name: 'Chrome',
@@ -644,6 +961,7 @@ const browsers: {
 
 let failed = false;
 const relay = await startRelay();
+const pages = await startPages();
 for (const browser of browsers) {
   if (!browser.binary) {
     console.log(`${browser.name}: not found${process.argv.includes('--require-all') ? '' : ', skipped'}`);
@@ -651,13 +969,13 @@ for (const browser of browsers) {
     continue;
   }
   try {
-    await browser.load(browser.binary, targetDir(browser.target), relay.url);
+    await browser.load(browser.binary, targetDir(browser.target), relay.url, pages);
     const passkeys =
       browser.target === 'chromium'
         ? 'a passkey unlocks it'
         : `passkeys ${firefoxPasskeys === 'unsupported' ? 'are not offered (no PRF)' : 'are offered'}`;
     console.log(
-      `${browser.name}: the ${browser.target} build loads, its popup reaches the background (${version()}), the lock works, ${passkeys}, it pairs with a phone, and its codes follow the phone's`,
+      `${browser.name}: the ${browser.target} build loads, its popup reaches the background (${version()}), the lock works, ${passkeys}, it pairs with a phone, fills codes into a page, and its codes follow the phone's`,
     );
   } catch (error) {
     failed = true;
@@ -665,4 +983,5 @@ for (const browser of browsers) {
   }
 }
 relay.stop();
+pages.stop();
 process.exitCode = failed ? 1 : 0;
