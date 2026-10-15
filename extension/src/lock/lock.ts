@@ -3,7 +3,7 @@
 // then on nothing private can be opened until one of them is given again.
 import { fromBase64UrlOfLength, toBase64Url, type Bytes } from '@cometotp/protocol';
 
-import { createLock, isLockRecord, openLock, openWithPasskey, wrapForPasskey, type LockRecord } from './crypto.js';
+import { createLock, isLockRecord, openLock, openWithPasskey, relock, wrapForPasskey, type LockRecord } from './crypto.js';
 import { clearRecords, clearSessionKey, getRecord, getSessionKey, putRecord, setSessionKey } from './storage.js';
 
 const LOCK_RECORD = 'lock';
@@ -36,6 +36,19 @@ export async function unlock(password: string): Promise<boolean> {
   const localKey = await openLock(stored, password);
   if (!localKey) return false;
   await setSessionKey(toBase64Url(localKey));
+  return true;
+}
+
+/**
+ * Replaces the password, given the current one; false when that is wrong. Works locked or
+ * unlocked, and leaves it as it was: M stays the same, so does everything sealed under it.
+ */
+export async function changePassword(current: string, next: string): Promise<boolean> {
+  const stored = await record();
+  if (!stored) return false;
+  const localKey = await openLock(stored, current);
+  if (!localKey) return false;
+  await putRecord(LOCK_RECORD, await relock(stored, localKey, next));
   return true;
 }
 

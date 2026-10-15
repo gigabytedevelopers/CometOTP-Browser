@@ -17,6 +17,7 @@ import {
   passkeyKey,
   passwordKey,
   prfSalt,
+  relock,
   sealPrivate,
   wrapForPasskey,
   type KdfParams,
@@ -74,6 +75,18 @@ describe('the lock', () => {
     assert.ok(!text.includes(toBase64Url(localKey)));
     assert.ok(!text.includes('several'));
     assert.deepEqual(Object.keys(record).sort(), ['kdf', 'password', 'v']);
+  });
+
+  it('takes a new password around the same local key, and keeps the passkey able to unlock', async () => {
+    const { record, localKey } = await createLock('several unrelated words');
+    const prf = randomBytes(32);
+    const withPasskey = { ...record, passkey: await wrapForPasskey(localKey, 'credential', prf) };
+    const changed = await relock(withPasskey, localKey, 'other unrelated words');
+    assert.notEqual(changed.kdf.salt, record.kdf.salt);
+    assert.deepEqual(await openLock(changed, 'other unrelated words'), localKey);
+    assert.equal(await openLock(changed, 'several unrelated words'), null);
+    assert.deepEqual(changed.passkey, withPasskey.passkey);
+    assert.deepEqual(await openWithPasskey(changed.passkey!, prf), localKey);
   });
 
   it('refuses records it does not know', () => {

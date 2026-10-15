@@ -92,6 +92,16 @@ export async function createLock(password: string): Promise<{ record: LockRecord
   return { record: { v: 1, kdf, password: sealed }, localKey };
 }
 
+/**
+ * The lock for a new password around the same M, with a new salt. A passkey's copy is kept: it
+ * seals M, which does not change, so nothing sealed under M needs sealing again.
+ */
+export async function relock(record: LockRecord, localKey: Bytes, password: string): Promise<LockRecord> {
+  const kdf: KdfParams = { name: 'argon2id', salt: toBase64Url(randomBytes(16)), ...KDF_DEFAULTS };
+  const sealed = await sealWith(await passwordKey(password, kdf), PASSWORD_AAD, localKey);
+  return { ...record, kdf, password: sealed };
+}
+
 /** M, or null when the password is wrong (or the record was altered). */
 export async function openLock(record: LockRecord, password: string): Promise<Bytes | null> {
   const key = await passwordKey(password, record.kdf);
