@@ -59,7 +59,7 @@ header {
   width: 20px;
   height: 14px;
   background: var(--brand);
-  mask: url(mark.svg) center / contain no-repeat;
+  mask: url(../icons/mark.svg) center / contain no-repeat;
 }
 
 header strong {
