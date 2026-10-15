@@ -154,7 +154,9 @@ the pairing QR.
   lists the services that browser had, with advice: if the computer was lost or stolen, reset 2FA
   at these services.
 - **From the browser:** Disconnect wipes the extension's data and deletes the vault. The phone gets
-  `410` at its next upload, removes the row and says so.
+  `410` at its next upload, stops uploading to it and says so: Connected extensions lists it as
+  disconnected until the person clears it. (A vault the relay deleted for going unread 180 days
+  looks the same, so the app's wording covers both.)
 - **Panic response and wipes:** delete `browsers.dat`; vault deletions are queued and sent when
   the network allows.
 - **Lock removed:** syncing pauses (no uploads, the list says why); browsers keep what they had,
