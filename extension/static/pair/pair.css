@@ -1,0 +1,46 @@
+/* The pairing page: a tab, so it can be wider than the popup and stay open while you use your phone. */
+
+body {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+}
+
+main {
+  width: 420px;
+  max-width: 100%;
+  padding-top: 48px;
+}
+
+#qr {
+  display: block;
+  width: 264px;
+  height: 264px;
+  margin: 16px auto 8px;
+  /* Always dark on light, whatever the theme: scanners need the contrast. */
+  background: #ffffff;
+  border-radius: 8px;
+}
+
+.center {
+  text-align: center;
+}
+
+button.inline {
+  display: inline;
+  width: auto;
+  margin: 0;
+  padding: 0;
+  background: none;
+  color: var(--brand);
+  font-weight: 600;
+}
+
+.sas {
+  margin: 20px 0 12px;
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}

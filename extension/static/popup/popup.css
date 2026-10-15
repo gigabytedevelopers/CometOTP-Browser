@@ -28,6 +28,11 @@
   }
 }
 
+/* Author display rules (forms are flex) would otherwise beat the hidden attribute. */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   margin: 0;

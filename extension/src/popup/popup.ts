@@ -4,6 +4,7 @@
 // for both (tools/load-test.ts).
 import {
   addPasskey,
+  localKey,
   lock,
   passkeyCredential,
   removePasskey,
@@ -15,6 +16,7 @@ import {
   type LockState,
 } from '../lock/lock.js';
 import { PasskeyError, createPasskey, passkeyOutput, passkeysNeedTab, passkeysSupported } from '../lock/passkey.js';
+import { pairingRecord, vaultSecret } from '../sync/store.js';
 import { MIN_LENGTH, SCORE_LABELS, problem, score } from '../lock/strength.js';
 import { isPong } from '../messages.js';
 
@@ -36,7 +38,28 @@ function show(view: LockState): void {
   const focus = { new: 'setup-password', locked: 'unlock-password', unlocked: 'lock' }[view];
   element(focus).focus();
   void showPasskey(view);
+  if (view === 'unlocked') void showPairing();
 }
+
+// Pairing, which happens in a tab of its own: it stays open while the person uses their phone.
+const pairingStatus = element('pairing-status');
+const pairButton = element<HTMLButtonElement>('pair');
+
+async function showPairing(): Promise<void> {
+  const record = await pairingRecord();
+  const key = record ? await localKey() : null;
+  const phone = key ? (await vaultSecret(key))?.phone : null;
+  pairingStatus.textContent = record
+    ? `Paired with ${phone ?? 'your phone'}. Its codes will show here in the next version.`
+    : 'Pair this browser with CometOTP on your phone to use your codes here.';
+  pairButton.hidden = Boolean(record);
+  document.body.dataset.paired = record ? 'yes' : 'no';
+}
+
+pairButton.addEventListener('click', () => {
+  void chrome.tabs.create({ url: chrome.runtime.getURL('pair/pair.html') });
+  window.close();
+});
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

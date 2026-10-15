@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Pair with your phone · CometOTP</title>
+    <link rel="stylesheet" href="../popup/popup.css">
+    <link rel="stylesheet" href="pair.css">
+    <script type="module" src="pair.js"></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <img src="../icons/icon-128.png" alt="" width="40" height="40">
+      </header>
+
+      <section id="step-code" hidden>
+        <h1>Pair with your phone</h1>
+        <p class="lead">In CometOTP on your phone, open Settings → Security → Connected extensions → Pair a browser, and scan this code.</p>
+        <canvas id="qr" width="264" height="264" role="img" aria-label="Pairing code"></canvas>
+        <p id="countdown" class="hint center" aria-live="off"></p>
+        <p class="hint center">Through <span id="relay-name"></span> · <button id="relay-change" class="inline" type="button">Change</button></p>
+        <form id="relay-form" hidden novalidate>
+          <label for="relay-input">Your own relay</label>
+          <input id="relay-input" type="url" inputmode="url" placeholder="https://relay.example.com" autocomplete="off" spellcheck="false">
+          <p id="relay-error" class="error" role="alert"></p>
+          <button id="relay-save" type="submit">Use this relay</button>
+          <button id="relay-official" class="link" type="button">Use the official relay</button>
+        </form>
+      </section>
+
+      <section id="step-compare" hidden>
+        <h1>Check the code</h1>
+        <p class="lead">Pair only if <strong id="compare-phone"></strong> shows these same six digits. If it shows others, cancel: someone else may have scanned your code.</p>
+        <p id="sas" class="sas"></p>
+        <button id="confirm" type="button">My phone shows the same code</button>
+        <button id="compare-cancel" class="link" type="button">Cancel</button>
+      </section>
+
+      <section id="step-finishing" hidden>
+        <h1>Finish on your phone</h1>
+        <p class="lead">Tap Pair on <strong id="finishing-phone"></strong>. Its services come next.</p>
+        <button id="finishing-cancel" class="link" type="button">Cancel</button>
+      </section>
+
+      <section id="step-done" hidden>
+        <h1 id="done-title">Paired</h1>
+        <p id="done-message" class="lead"></p>
+        <button id="done-close" type="button">Close</button>
+      </section>
+
+      <section id="step-failed" hidden>
+        <h1 id="failed-title">Pairing failed</h1>
+        <p id="failed-message" class="lead"></p>
+        <button id="retry" type="button">Try again</button>
+      </section>
+
+      <section id="step-locked" hidden>
+        <h1>Unlock CometOTP first</h1>
+        <p class="lead">Unlock it with the CometOTP button in the toolbar, then pair. Pairing needs the extension unlocked, as what the phone sends is kept under your password.</p>
+      </section>
+
+      <section id="step-paired" hidden>
+        <h1>Already paired</h1>
+        <p class="lead">This browser is paired with <strong id="paired-phone"></strong>.</p>
+      </section>
+    </main>
+  </body>
+</html>
