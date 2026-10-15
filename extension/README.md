@@ -83,7 +83,7 @@ while Firefox shows the passkey and permission prompts.
   was given: renaming a paired browser happens in CometOTP, in Connected extensions.
 - **Disconnect** (protocol §7.2) deletes the vault on the relay with the read token, then
   everything the pairing kept here (its details, the copy and the sites filled), even when the
-  relay cannot be reached. The phone gets `410` at its next upload and stops listing the browser.
+  relay cannot be reached. The phone gets `410` at its next upload and shows the browser as disconnected.
   If the relay could not be reached, the page says to remove the browser on the phone too. The
   password and the settings stay, to pair again.
 - **Lock after** 1, 5, 15 (the default), 30 or 60 minutes, or 4 hours without input. The
