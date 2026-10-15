@@ -32,15 +32,26 @@ describe('manifest', () => {
     });
   });
 
-  it('asks only for alarms, idle and storage, and keeps the strict content security policy', () => {
+  it('asks only for alarms, idle, scripting and storage, and keeps the strict content security policy', () => {
     for (const m of [chromium, firefox]) {
-      assert.deepEqual(m.permissions, ['alarms', 'idle', 'storage']);
-      for (const key of ['optional_permissions', 'host_permissions', 'optional_host_permissions']) {
+      assert.deepEqual(m.permissions, ['alarms', 'idle', 'scripting', 'storage']);
+      for (const key of ['optional_permissions', 'host_permissions']) {
         assert.equal(key in m, false, key);
       }
       assert.deepEqual(m.content_security_policy, { extension_pages: EXTENSION_PAGES_CSP });
     }
     // Scripts only from the extension itself; WebAssembly for Argon2id, never eval of JavaScript.
     assert.equal(EXTENSION_PAGES_CSP, "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; base-uri 'none'");
+  });
+
+  it('may ask for https sites, and http on this computer, only once filling is turned on', () => {
+    const sites = ['https://*/*', 'http://localhost/*', 'http://127.0.0.1/*'];
+    for (const m of [chromium, firefox]) {
+      assert.deepEqual(m.optional_host_permissions, sites);
+      // Pages may load the content script's modules and the menu, and nothing else.
+      assert.deepEqual(m.web_accessible_resources, [
+        { resources: ['fill/detect.js', 'fill/field.js', 'fill/menu.html', 'fill/messages.js'], matches: sites },
+      ]);
+    }
   });
 });

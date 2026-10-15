@@ -14,7 +14,17 @@ import { unzip } from './unzip.js';
 
 const EXPECTED = [
   'background.js',
+  'fill/access.js',
+  'fill/content.js',
   'fill/detect.js',
+  'fill/field.js',
+  'fill/links.js',
+  'fill/mark.svg',
+  'fill/menu.css',
+  'fill/menu.html',
+  'fill/menu.js',
+  'fill/menus.js',
+  'fill/messages.js',
   'fill/sites.js',
   'icons/icon-128.png',
   'icons/icon-16.png',
@@ -106,13 +116,30 @@ describe('the check', () => {
     const problems = changed((dir) =>
       edit(dir, 'manifest.json', (text) => {
         const m = JSON.parse(text);
+        m.permissions.push('tabs');
         m.host_permissions = ['<all_urls>'];
+        m.optional_host_permissions.push('<all_urls>');
         m.content_security_policy.extension_pages = "script-src 'self' 'unsafe-eval'";
         return JSON.stringify(m);
       }),
     );
-    assert.ok(problems.some((p) => p.includes('"<all_urls>"')));
+    assert.ok(problems.some((p) => p.includes('"tabs", which is not in ALLOWED_PERMISSIONS')));
+    assert.ok(problems.some((p) => p.includes('asks for host_permissions')));
+    assert.ok(problems.some((p) => p.includes('"<all_urls>", which is not in OPTIONAL_HOSTS')));
     assert.ok(problems.some((p) => p.includes('content security policy')));
+  });
+
+  it('refuses exposing more to pages, and a content script module pages cannot load', () => {
+    const problems = changed((dir) => {
+      edit(dir, 'manifest.json', (text) => {
+        const m = JSON.parse(text);
+        m.web_accessible_resources[0].resources.push('popup/popup.html');
+        return JSON.stringify(m);
+      });
+      edit(dir, 'fill/field.js', (js) => `import '../sync/store.js';\n${js}`);
+    });
+    assert.ok(problems.some((p) => p.includes('exposes popup/popup.html to web pages')));
+    assert.ok(problems.some((p) => p.includes('fill/field.js: imports ../sync/store.js, which pages cannot load')));
   });
 
   it('refuses inline scripts, handlers and anything loaded from elsewhere', () => {

@@ -1,18 +1,28 @@
 // Checks each built package (dist/<target>/) for what stores and reviewers object to, and what
 // would break it in the browser. It is the extension's lint, next to TypeScript's strict checks:
 // - the manifest is the one tools/manifest.ts makes, asks for no permission outside
-//   ALLOWED_PERMISSIONS and keeps the strict content security policy;
+//   ALLOWED_PERMISSIONS, for access to sites only as OPTIONAL_HOSTS, exposes to pages only
+//   WEB_ACCESSIBLE, and keeps the strict content security policy;
 // - every file the manifest names exists, and nothing else is shipped but code, pages, images and
 //   the licences of copied packages;
 // - pages run no inline script or handler and load nothing from elsewhere;
 // - scripts use no eval, string timers, document.write or HTML injection, and import only files
-//   that are in the package.
+//   that are in the package; the content script's modules import only modules pages may load.
 // It reads text with patterns, so it guards against mistakes rather than proving anything.
 import { existsSync, readFileSync } from 'node:fs';
 import { join, posix } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { ALLOWED_PERMISSIONS, EXTENSION_PAGES_CSP, MAX_DESCRIPTION, TARGETS, manifest, type Target } from './manifest.js';
+import {
+  ALLOWED_PERMISSIONS,
+  EXTENSION_PAGES_CSP,
+  MAX_DESCRIPTION,
+  OPTIONAL_HOSTS,
+  TARGETS,
+  WEB_ACCESSIBLE,
+  manifest,
+  type Target,
+} from './manifest.js';
 import { listFiles, targetDir, version } from './package.js';
 
 const SHIPPED = /\.(js|html|css|png|svg|json|wasm)$|^lib\/[^/]+\/LICENSE$/;
@@ -27,10 +37,15 @@ const SCRIPT_RULES: [RegExp, string][] = [
 
 const IMPORT = /(?:\bfrom\s*|\bimport\s*\(?\s*)['"]([^'"]+)['"]/g;
 
-/** Every permission-like list in the manifest, which must stay within ALLOWED_PERMISSIONS. */
-function requested(m: Record<string, unknown>): string[] {
-  const lists = ['permissions', 'optional_permissions', 'host_permissions', 'optional_host_permissions'];
-  return lists.flatMap((key) => (Array.isArray(m[key]) ? (m[key] as unknown[]).map(String) : []));
+/** A list in the manifest, as strings. */
+function list(m: Record<string, unknown>, key: string): string[] {
+  return Array.isArray(m[key]) ? (m[key] as unknown[]).map(String) : [];
+}
+
+/** The files the manifest lets pages load. */
+function webAccessible(m: Record<string, unknown>): string[] {
+  const entries = Array.isArray(m.web_accessible_resources) ? (m.web_accessible_resources as Record<string, unknown>[]) : [];
+  return entries.flatMap((entry) => list(entry, 'resources'));
 }
 
 /** Files the manifest refers to. */
@@ -50,6 +65,7 @@ function referenced(m: Record<string, unknown>): string[] {
     if (typeof background.service_worker === 'string') out.push(background.service_worker);
     if (Array.isArray(background.scripts)) out.push(...background.scripts.map(String));
   }
+  out.push(...webAccessible(m));
   return out;
 }
 
@@ -63,15 +79,24 @@ export function checkPackage(target: Target, dir = targetDir(target)): string[] 
     problems.push('manifest.json is not the one tools/manifest.ts makes');
   }
   if (m.manifest_version !== 3) problems.push('manifest_version is not 3');
-  for (const permission of requested(m)) {
+  for (const permission of list(m, 'permissions')) {
     if (!ALLOWED_PERMISSIONS.includes(permission)) problems.push(`asks for "${permission}", which is not in ALLOWED_PERMISSIONS`);
+  }
+  for (const key of ['optional_permissions', 'host_permissions']) {
+    if (key in m) problems.push(`asks for ${key}, which the extension never needs`);
+  }
+  for (const origin of list(m, 'optional_host_permissions')) {
+    if (!OPTIONAL_HOSTS.includes(origin)) problems.push(`may ask for "${origin}", which is not in OPTIONAL_HOSTS`);
+  }
+  const exposed = webAccessible(m);
+  for (const path of exposed) {
+    if (!WEB_ACCESSIBLE.includes(path)) problems.push(`exposes ${path} to web pages, which is not in WEB_ACCESSIBLE`);
   }
   if (typeof m.description !== 'string' || m.description.length > MAX_DESCRIPTION) {
     problems.push(`the description must be at most ${MAX_DESCRIPTION} characters`);
   }
   const csp = (m.content_security_policy as Record<string, unknown> | undefined)?.extension_pages;
   if (csp !== EXTENSION_PAGES_CSP) problems.push('the content security policy is not EXTENSION_PAGES_CSP');
-  if ('web_accessible_resources' in m) problems.push('exposes files to web pages (web_accessible_resources)');
   if ('externally_connectable' in m) problems.push('accepts messages from web pages (externally_connectable)');
   for (const path of referenced(m)) {
     if (!files.includes(path)) problems.push(`the manifest names ${path}, which is missing`);
@@ -96,8 +121,12 @@ export function checkPackage(target: Target, dir = targetDir(target)): string[] 
       for (const [, specifier] of js.matchAll(IMPORT)) {
         if (!specifier!.startsWith('./') && !specifier!.startsWith('../')) {
           problems.push(`${path}: imports "${specifier}", which the browser cannot resolve`);
-        } else if (!files.includes(posix.normalize(posix.join(posix.dirname(path), specifier!)))) {
-          problems.push(`${path}: imports ${specifier}, which is not in the package`);
+        } else {
+          const imported = posix.normalize(posix.join(posix.dirname(path), specifier!));
+          if (!files.includes(imported)) problems.push(`${path}: imports ${specifier}, which is not in the package`);
+          else if (exposed.includes(path) && !exposed.includes(imported)) {
+            problems.push(`${path}: imports ${specifier}, which pages cannot load, so the content script would fail`);
+          }
         }
       }
     }

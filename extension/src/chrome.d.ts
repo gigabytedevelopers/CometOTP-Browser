@@ -7,10 +7,18 @@ declare namespace chrome.runtime {
     version: string;
   }
 
+  /** Who sent a message, as the browser saw it. */
   interface MessageSender {
     id?: string;
+    /** The sending frame's address. */
     url?: string;
+    /** The tab, for a content script or a page in a tab or a frame of one. */
+    tab?: chrome.tabs.Tab;
+    frameId?: number;
   }
+
+  /** The extension's id. */
+  const id: string;
 
   function getManifest(): Manifest;
 
@@ -25,10 +33,18 @@ declare namespace chrome.runtime {
     addListener(callback: () => void): void;
   };
 
+  /** When the extension is installed or updated. */
+  const onInstalled: {
+    addListener(callback: () => void): void;
+  };
+
   const onMessage: {
-    /** Call `sendResponse` before returning to reply to the sender. */
+    /**
+     * Call `sendResponse` before returning to reply to the sender, or return true and call it
+     * later.
+     */
     addListener(
-      callback: (message: unknown, sender: MessageSender, sendResponse: (response: unknown) => void) => void,
+      callback: (message: unknown, sender: MessageSender, sendResponse: (response: unknown) => void) => boolean | undefined | void,
     ): void;
   };
 }
@@ -57,8 +73,61 @@ declare namespace chrome.idle {
 }
 
 declare namespace chrome.tabs {
+  interface Tab {
+    id?: number;
+    /** Only for sites the extension has access to. */
+    url?: string;
+  }
+
   /** Opens a tab; no permission is needed for this. */
   function create(properties: { url: string }): Promise<unknown>;
+
+  /** The tabs showing these addresses, among the sites the extension has access to. */
+  function query(filter: { url: string[] }): Promise<Tab[]>;
+
+  /** Sends a message to the extension's content script in one frame of a tab. */
+  function sendMessage(tabId: number, message: unknown, options: { frameId: number }): Promise<unknown>;
+}
+
+declare namespace chrome.permissions {
+  interface Permissions {
+    origins?: string[];
+  }
+
+  function contains(permissions: Permissions): Promise<boolean>;
+
+  /** Asks the person; only from a click or another user action. */
+  function request(permissions: Permissions): Promise<boolean>;
+
+  function remove(permissions: Permissions): Promise<boolean>;
+
+  const onAdded: {
+    addListener(callback: (permissions: Permissions) => void): void;
+  };
+
+  const onRemoved: {
+    addListener(callback: (permissions: Permissions) => void): void;
+  };
+}
+
+declare namespace chrome.scripting {
+  interface ContentScript {
+    id: string;
+    js: string[];
+    matches: string[];
+    allFrames: boolean;
+    runAt: 'document_start' | 'document_end' | 'document_idle';
+    persistAcrossSessions: boolean;
+  }
+
+  function registerContentScripts(scripts: ContentScript[]): Promise<void>;
+
+  function unregisterContentScripts(filter: { ids: string[] }): Promise<void>;
+
+  function getRegisteredContentScripts(filter: { ids: string[] }): Promise<{ id: string }[]>;
+
+  /** Runs files in a tab's frames, as content scripts. */
+  function executeScript(injection: { target: { tabId: number; allFrames: boolean }; files: string[] }): Promise<unknown>;
 }
 
 declare namespace chrome.alarms {

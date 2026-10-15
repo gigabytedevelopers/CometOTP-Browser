@@ -6,6 +6,7 @@ import { fromBase64UrlOfLength, fromUtf8, utf8, type Bytes } from '@cometotp/pro
 
 import { openPrivate, sealPrivate, type Sealed } from '../lock/crypto.js';
 import { deleteRecord, getRecord, putRecord } from '../lock/storage.js';
+import { LINKS } from '../fill/links.js';
 import type { Paired } from '../pair/pairing.js';
 import { OFFICIAL_RELAY } from './relay.js';
 
@@ -67,10 +68,12 @@ export async function vaultSecret(localKey: Bytes): Promise<VaultSecret | null> 
   return JSON.parse(fromUtf8(await openPrivate(localKey, SECRET, sealed))) as VaultSecret;
 }
 
+/** Deletes everything the pairing kept: its details, the copy, and the sites filled. */
 export async function forgetPairing(): Promise<void> {
   await deleteRecord(PAIRING);
   await deleteRecord(SECRET);
   await deleteRecord(BLOB);
+  await deleteRecord(LINKS);
 }
 
 /** Raises the version accepted from `vault`, unless the pairing changed meanwhile. */

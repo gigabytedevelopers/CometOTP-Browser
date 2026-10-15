@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CometOTP</title>
+    <link rel="stylesheet" href="menu.css">
+    <script type="module" src="menu.js"></script>
+  </head>
+  <body>
+    <main id="menu">
+      <header>
+        <span class="mark" aria-hidden="true"></span>
+        <span>Fill a code into <strong id="site"></strong></span>
+      </header>
+      <p id="message" class="message" role="status" hidden></p>
+      <div id="choose" hidden>
+        <ul id="offered" class="services" aria-label="Services for this site"></ul>
+        <p id="none" class="hint" hidden></p>
+        <input id="search" type="search" placeholder="Search all services" aria-label="Search all services" autocomplete="off" spellcheck="false">
+        <ul id="found" class="services" aria-label="Services found"></ul>
+      </div>
+      <div id="confirm" hidden>
+        <p id="confirm-text" class="message"></p>
+        <div class="actions">
+          <button id="confirm-cancel" class="secondary" type="button">Cancel</button>
+          <button id="confirm-fill" type="button">Fill anyway</button>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>
