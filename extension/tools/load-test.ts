@@ -103,6 +103,25 @@ function readRecord(key: string): string {
   })()`;
 }
 
+/** Writes a record to the extension's IndexedDB, as the extension would. */
+function writeRecord(key: string, value: unknown): string {
+  return `(async () => {
+    const db = await new Promise((resolve, reject) => {
+      const req = indexedDB.open('cometotp');
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('records', 'readwrite');
+      tx.objectStore('records').put(${JSON.stringify(value)}, ${JSON.stringify(key)});
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+    return 'written';
+  })()`;
+}
+
 const READ_LOCK_RECORD = readRecord('lock');
 
 const READ_SESSION_KEY = `(async () => (await chrome.storage.session.get('localKey')).localKey ?? 'none')()`;
@@ -490,6 +509,9 @@ async function upload(phone: PhoneVault, version: number): Promise<void> {
  * must end paired with that service, keeping the vault key out of plain sight.
  */
 async function exercisePairing(evaluate: Evaluate, open: (path: string) => Promise<void>, relay: string): Promise<PhoneVault> {
+  // The page makes its first code at once: through the local relay by another address, as if the
+  // person had chosen it before, so no test run reaches the official relay.
+  await evaluate(writeRecord('relay', relay.replace('127.0.0.1', 'localhost')));
   await open('pair/pair.html');
   await attribute(evaluate, 'the first code', 'document.body.dataset.step', (v) => v === 'code');
   await evaluate(click('relay-change'));
