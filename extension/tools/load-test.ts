@@ -2,11 +2,13 @@
 // the browser accepts it, its popup page opens, and the page reaches the background, which answers
 // with the extension's version (src/popup/popup.ts records it in `data-background`). Then it uses
 // the lock as a person would, through the popup (see exerciseLock), and in Chrome adds a passkey
-// on a virtual authenticator with the PRF extension and unlocks with it (see exercisePasskey).
-// Last, it pairs with a stand-in phone through a relay it starts on this computer (see
-// exercisePairing), fills codes into a page it serves (see exerciseFill), then checks the codes
-// against the protocol package's, that a change on the phone reaches the popup, and that the
-// phone removing the browser wipes its copy (see exerciseSync).
+// on a virtual authenticator with the PRF extension, on the settings page, and unlocks with it
+// (see exercisePasskey). It changes the settings (see exerciseSettings). Last, it pairs with a
+// stand-in phone through a relay it starts on this computer (see exercisePairing), fills codes
+// into a page it serves (see exerciseFill), then checks the codes against the protocol package's,
+// that a change on the phone reaches the popup, and that the phone removing the browser wipes its
+// copy (see exerciseSync); it pairs again and disconnects from the browser (see
+// exerciseDisconnect).
 //
 // - Chrome, driven through the DevTools protocol over a pipe: Extensions.loadUnpacked, which
 //   needs --enable-unsafe-extension-debugging.
@@ -205,14 +207,22 @@ async function attribute(evaluate: Evaluate, what: string, expression: string, e
  * with the passkey to the same key. Then an authenticator without PRF cannot replace it, and the
  * password still unlocks with the passkey in place.
  */
-async function exercisePasskey(evaluate: Evaluate, useAuthenticator: (prf: boolean) => Promise<void>): Promise<void> {
+async function exercisePasskey(
+  evaluate: Evaluate,
+  open: (path: string) => Promise<void>,
+  useAuthenticator: (prf: boolean) => Promise<void>,
+): Promise<void> {
+  await open('settings/settings.html');
+  await attribute(evaluate, 'the settings page', 'document.body.dataset.view', (v) => v === 'unlocked');
   const support = await attribute(evaluate, 'the passkey panel', 'document.body.dataset.passkey', () => true);
-  if (support !== 'none') throw new Error(`Passkeys should be offered here, but the popup says "${support}"`);
+  if (support !== 'none') throw new Error(`Passkeys should be offered here, but the settings page says "${support}"`);
   await useAuthenticator(true);
   await evaluate(click('passkey-add'));
   await attribute(evaluate, 'the passkey to be added', 'document.body.dataset.passkey', (v) => v === 'added');
   const key = await evaluate(READ_SESSION_KEY);
 
+  await open('popup/popup.html');
+  await view(evaluate, 'unlocked');
   await evaluate(click('lock'));
   await view(evaluate, 'locked');
   // The popup offers the passkey once it has read the lock record, a moment after it shows.
@@ -222,17 +232,101 @@ async function exercisePasskey(evaluate: Evaluate, useAuthenticator: (prf: boole
   if ((await evaluate(READ_SESSION_KEY)) !== key) throw new Error('The passkey unlocked to a different local key');
 
   await useAuthenticator(false);
+  await open('settings/settings.html');
+  await attribute(evaluate, 'the settings page to offer replacing the passkey', 'document.body.dataset.passkey', (v) => v === 'added');
   await evaluate(click('passkey-add'));
   await attribute(evaluate, 'a passkey without PRF to be refused', "document.getElementById('passkey-error').textContent", (v) =>
     v.includes('cannot unlock'),
   );
   if ((await evaluate('document.body.dataset.passkey')) !== 'added') throw new Error('A refused passkey replaced the one added');
 
+  await open('popup/popup.html');
+  await view(evaluate, 'unlocked');
   await evaluate(click('lock'));
   await view(evaluate, 'locked');
   await evaluate(fill('unlock-form', { 'unlock-password': PASSWORD }));
   await view(evaluate, 'unlocked');
   if ((await evaluate(READ_SESSION_KEY)) !== key) throw new Error('The password unlocked to a different local key');
+}
+
+const NEW_PASSWORD = 'quartz meadow lantern';
+const BROWSER_NAME = 'Load test browser';
+
+/**
+ * The settings page: choosing how soon it locks (the popup then says so), naming the browser for
+ * pairing (the stand-in phone checks the name in exercisePairing), and changing the password: a
+ * wrong current one is refused; after the change the old one no longer unlocks and the new one
+ * unlocks to the same local key, with the passkey kept. Then it changes the password back.
+ */
+async function exerciseSettings(evaluate: Evaluate, open: (path: string) => Promise<void>): Promise<void> {
+  const select = (minutes: number) =>
+    `(() => { const s = document.getElementById('auto-lock'); s.value = '${minutes}'; s.dispatchEvent(new Event('change')); return 'chosen'; })()`;
+  await open('settings/settings.html');
+  await attribute(evaluate, 'the settings page', 'document.body.dataset.autoLock', (v) => v === '15');
+  const passkey = await evaluate('document.body.dataset.passkey');
+  await evaluate(select(5));
+  await attribute(evaluate, 'the lock time to be kept', readRecord('auto-lock'), (v) => v === '5');
+  await open('popup/popup.html');
+  await attribute(evaluate, 'the popup to say when it locks', "document.getElementById('lock-hint').textContent", (v) => v.includes('after 5 minutes'));
+  await open('settings/settings.html');
+  await attribute(evaluate, 'the settings page', 'document.body.dataset.autoLock', (v) => v === '5');
+  await evaluate(select(15));
+  await attribute(evaluate, 'the lock time to go back to its default', readRecord('auto-lock'), (v) => v === 'null');
+
+  await evaluate(fill('name-form', { name: ` ${BROWSER_NAME} ` }));
+  await attribute(evaluate, 'the name to be saved', "document.getElementById('name-done').textContent", (v) => v === 'Saved.');
+  if ((await evaluate(readRecord('browser-name'))) !== JSON.stringify(BROWSER_NAME)) throw new Error('The name was not kept as given');
+
+  const change = (current: string, next: string) =>
+    fill('password-form', { 'password-current': current, 'password-new': next, 'password-confirm': next });
+  const key = await evaluate(READ_SESSION_KEY);
+  await evaluate(change('not the password at all', NEW_PASSWORD));
+  await attribute(evaluate, 'a wrong current password to be refused', "document.getElementById('password-error').textContent", (v) =>
+    v === 'The current password is wrong.',
+  );
+  await evaluate(change(PASSWORD, NEW_PASSWORD));
+  await attribute(evaluate, 'the password to change', 'document.body.dataset.password', (v) => v === 'changed');
+  if ((await evaluate('document.body.dataset.passkey')) !== passkey) throw new Error('Changing the password changed the passkey');
+
+  await open('popup/popup.html');
+  await view(evaluate, 'unlocked');
+  await evaluate(click('lock'));
+  await view(evaluate, 'locked');
+  await evaluate(fill('unlock-form', { 'unlock-password': PASSWORD }));
+  await attribute(evaluate, 'the old password to be refused', "document.getElementById('unlock-error').textContent", (v) => v === 'Wrong password.');
+  await evaluate(fill('unlock-form', { 'unlock-password': NEW_PASSWORD }));
+  await view(evaluate, 'unlocked');
+  if ((await evaluate(READ_SESSION_KEY)) !== key) throw new Error('The new password unlocked to a different local key');
+
+  await open('settings/settings.html');
+  await attribute(evaluate, 'the settings page', 'document.body.dataset.view', (v) => v === 'unlocked');
+  await evaluate(change(NEW_PASSWORD, PASSWORD));
+  await attribute(evaluate, 'the password to change back', "document.getElementById('password-done').textContent", (v) => v.includes('changed'));
+}
+
+/**
+ * Disconnect from the browser (protocol §7.2), after pairing again: the settings page deletes the
+ * vault on the relay, so the phone's next upload gets 410, and everything the pairing kept here.
+ */
+async function exerciseDisconnect(evaluate: Evaluate, open: (path: string) => Promise<void>, phone: PhoneVault): Promise<void> {
+  await open('settings/settings.html');
+  await attribute(evaluate, 'the settings page to offer Disconnect', 'document.body.dataset.paired', (v) => v === 'yes');
+  await evaluate(click('disconnect'));
+  await evaluate(click('disconnect-yes'));
+  await attribute(evaluate, 'the relay to hear the browser disconnect', 'document.body.dataset.disconnected', (v) => v === 'relay');
+  for (const record of ['pairing', 'vault-secret', 'vault-blob', 'site-links']) {
+    if ((await evaluate(readRecord(record))) !== 'null') throw new Error(`Disconnect kept the record "${record}"`);
+  }
+  const refused = await upload(phone, 9).then(
+    () => 'stored',
+    (error: unknown) => String(error),
+  );
+  if (!refused.includes(': 410')) throw new Error(`After Disconnect the phone's upload was ${refused}, not 410`);
+  await open('popup/popup.html');
+  await attribute(evaluate, 'the popup to offer pairing again', 'document.body.dataset.paired', (v) => v === 'no');
+  if ((await evaluate("String(document.getElementById('notice').hidden)")) !== 'true') {
+    throw new Error('The popup said the phone removed the browser, which disconnected itself');
+  }
 }
 
 /** A JSON message protocol: requests with ids, answers matched to them, and events. */
@@ -371,11 +465,15 @@ async function loadInChrome(binary: string, built: string, relay: string, pages:
       return typeof reply.result?.value === 'string' ? (reply.result.value as string) : undefined;
     };
     await exerciseLock(evaluate);
+    const openChrome = async (path: string) => {
+      await cdp.send('Page.navigate', { url: `chrome-extension://${id}/${path}` }, sessionId);
+      await delay(500);
+    };
 
     // A virtual authenticator that verifies the person at once, with or without PRF.
     await cdp.send('WebAuthn.enable', { enableUI: false }, sessionId);
     let authenticatorId: string | undefined;
-    await exercisePasskey(evaluate, async (prf) => {
+    await exercisePasskey(evaluate, openChrome, async (prf) => {
       if (authenticatorId) await cdp.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId }, sessionId);
       ({ authenticatorId } = await cdp.send(
         'WebAuthn.addVirtualAuthenticator',
@@ -394,10 +492,7 @@ async function loadInChrome(binary: string, built: string, relay: string, pages:
         sessionId,
       ));
     });
-    const openChrome = async (path: string) => {
-      await cdp.send('Page.navigate', { url: `chrome-extension://${id}/${path}` }, sessionId);
-      await delay(500);
-    };
+    await exerciseSettings(evaluate, openChrome);
     const phone = await exercisePairing(evaluate, openChrome, relay);
 
     // Pages act as focused, as in a window in front. Frames from elsewhere run as targets of their
@@ -441,6 +536,7 @@ async function loadInChrome(binary: string, built: string, relay: string, pages:
       false,
     );
     await exerciseSync(evaluate, openChrome, phone);
+    await exerciseDisconnect(evaluate, openChrome, await exercisePairing(evaluate, openChrome, relay));
     const errors = cdp.events.filter((e) => e.method === 'Runtime.exceptionThrown' && e.sessionId === sessionId);
     if (errors.length) throw new Error(`A page threw: ${JSON.stringify(errors[0]!.params.exceptionDetails)}`);
   } finally {
@@ -519,6 +615,7 @@ async function loadInFirefox(binary: string, built: string, relay: string, pages
       const openFirefox = async (path: string) => {
         await bidi.send('browsingContext.navigate', { context, url: `moz-extension://${FIREFOX_UUID}/${path}`, wait: 'complete' });
       };
+      await exerciseSettings(evaluate, openFirefox);
       const phone = await exercisePairing(evaluate, openFirefox, relay);
       const tree = async () => {
         const { contexts } = await bidi.send('browsingContext.getTree', { root: context });
@@ -566,6 +663,7 @@ async function loadInFirefox(binary: string, built: string, relay: string, pages
         true,
       );
       await exerciseSync(evaluate, openFirefox, phone);
+      await exerciseDisconnect(evaluate, openFirefox, await exercisePairing(evaluate, openFirefox, relay));
       await bidi.send('session.end').catch(() => undefined);
     } finally {
       socket.close();
@@ -643,6 +741,7 @@ async function exercisePairing(evaluate: Evaluate, open: (path: string) => Promi
 
   // The phone scans the code and answers with its hello, claiming the channel.
   const code = parsePairingUri(uri, { allowInsecureRelay: true });
+  if (code.browserName !== BROWSER_NAME) throw new Error(`The code names the browser "${code.browserName}", not the name chosen`);
   const channel = toBase64Url(code.channel);
   const phone = await generateKeyPair();
   const keys = await derivePairingKeys(await ecdh(phone.privateKey, code.browserPublicKey), code.secret, await pairingTranscript(code, phone.publicKey));
@@ -835,8 +934,8 @@ async function codeSince(shown: string | undefined, service: Service, since: num
 async function exerciseFill(driver: FillDriver, phone: PhoneVault, pages: Pages, canTurnOff: boolean): Promise<void> {
   const { evaluate } = driver;
   const service = phone.services[0]!;
-  await driver.open('popup/popup.html');
-  await attribute(evaluate, 'the popup to say filling is on', 'document.body.dataset.filling', (v) => v === 'on');
+  await driver.open('settings/settings.html');
+  await attribute(evaluate, 'the settings page to say filling is on', 'document.body.dataset.filling', (v) => v === 'on');
 
   const button = async (field: string) => {
     await evaluate(`(${field}.focus(), 'focused')`);
@@ -921,7 +1020,7 @@ async function exerciseFill(driver: FillDriver, phone: PhoneVault, pages: Pages,
   await delay(1500);
   if ((await driver.inFrame('localhost', HAS_BUTTON)) !== 'no') throw new Error('A frame from another host got the button');
 
-  await driver.open('popup/popup.html');
+  await driver.open('settings/settings.html');
   if ((await evaluate(readRecord('site-links'))) === 'null') throw new Error('The service was not linked to the site');
   if (canTurnOff) {
     await evaluate(click('filling-off'));
@@ -977,7 +1076,7 @@ for (const browser of browsers) {
         ? 'a passkey unlocks it'
         : `passkeys ${firefoxPasskeys === 'unsupported' ? 'are not offered (no PRF)' : 'are offered'}`;
     console.log(
-      `${browser.name}: the ${browser.target} build loads, its popup reaches the background (${version()}), the lock works, ${passkeys}, it pairs with a phone, fills codes into a page, and its codes follow the phone's`,
+      `${browser.name}: the ${browser.target} build loads, its popup reaches the background (${version()}), the lock works, ${passkeys}, its settings work, it pairs with a phone, fills codes into a page, its codes follow the phone's, and it disconnects`,
     );
   } catch (error) {
     failed = true;

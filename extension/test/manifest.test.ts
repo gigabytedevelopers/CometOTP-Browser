@@ -26,6 +26,10 @@ describe('manifest', () => {
     assert.deepEqual(firefox.background, { scripts: ['background.js'], type: 'module' });
   });
 
+  it('opens its settings page in a tab', () => {
+    for (const m of [chromium, firefox]) assert.deepEqual(m.options_ui, { page: 'settings/settings.html', open_in_tab: true });
+  });
+
   it('gives Firefox a fixed id and says no data is collected', () => {
     assert.deepEqual(firefox.browser_specific_settings, {
       gecko: { id: GECKO_ID, strict_min_version: '140.0', data_collection_permissions: { required: ['none'] } },

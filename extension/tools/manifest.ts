@@ -65,6 +65,7 @@ export function manifest(target: Target, version: string): Record<string, unknow
       default_popup: 'popup/popup.html',
       default_icon: { '16': ICONS['16'], '32': ICONS['32'] },
     },
+    options_ui: { page: 'settings/settings.html', open_in_tab: true },
     permissions: [...ALLOWED_PERMISSIONS],
     optional_host_permissions: [...OPTIONAL_HOSTS],
     web_accessible_resources: [{ resources: [...WEB_ACCESSIBLE], matches: [...OPTIONAL_HOSTS] }],

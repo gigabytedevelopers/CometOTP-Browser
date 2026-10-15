@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CometOTP settings</title>
+    <link rel="stylesheet" href="../popup/popup.css">
+    <link rel="stylesheet" href="settings.css">
+    <script type="module" src="settings.js"></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <img src="../icons/icon-128.png" alt="" width="40" height="40">
+        <h1>CometOTP settings</h1>
+      </header>
+      <p id="state-note" class="notice" role="status" hidden></p>
+
+      <section class="panel" aria-labelledby="browser-title">
+        <h2 id="browser-title">This browser</h2>
+        <p id="paired-status"></p>
+        <p class="hint">Relay: <span id="relay"></span></p>
+        <form id="name-form" novalidate>
+          <label for="name">Name</label>
+          <input id="name" type="text" autocomplete="off" spellcheck="false">
+          <p id="name-hint" class="hint"></p>
+          <p id="name-error" class="error" role="alert"></p>
+          <p id="name-done" class="hint" role="status"></p>
+          <button id="name-save" class="secondary" type="submit">Save the name</button>
+        </form>
+        <div id="disconnect-panel" hidden>
+          <h3>Disconnect</h3>
+          <p class="hint">Stop showing your codes in this browser.</p>
+          <button id="disconnect" class="secondary" type="button">Disconnect…</button>
+          <div id="disconnect-confirm" class="notice" hidden>
+            <p>Disconnecting deletes this browser's copy of your codes, here and on the relay. Your phone keeps everything, and stops listing this browser the next time it syncs.</p>
+            <div class="actions">
+              <button id="disconnect-yes" class="danger" type="button">Disconnect this browser</button>
+              <button id="disconnect-cancel" class="link" type="button">Cancel</button>
+            </div>
+          </div>
+        </div>
+        <p id="disconnect-done" class="notice" role="status" hidden></p>
+      </section>
+
+      <section class="panel" aria-labelledby="lock-title">
+        <h2 id="lock-title">Lock</h2>
+        <label for="auto-lock">Lock after this long without use</label>
+        <select id="auto-lock"></select>
+        <p class="hint">CometOTP also locks when the computer locks and when the browser quits.</p>
+
+        <form id="password-form" novalidate hidden>
+          <h3>Change the password</h3>
+          <label for="password-current">Current password</label>
+          <input id="password-current" type="password" autocomplete="current-password" required>
+          <label for="password-new">New password</label>
+          <input id="password-new" type="password" autocomplete="new-password" required>
+          <div id="password-meter" class="meter" role="meter" aria-label="Password strength" aria-valuemin="0" aria-valuemax="4" aria-valuenow="0" aria-describedby="password-strength"><div class="meter-bar"></div></div>
+          <p id="password-strength" class="hint"></p>
+          <label for="password-confirm">New password again</label>
+          <input id="password-confirm" type="password" autocomplete="new-password" required>
+          <p id="password-error" class="error" role="alert"></p>
+          <p id="password-done" class="hint" role="status"></p>
+          <button id="password-submit" type="submit">Change the password</button>
+        </form>
+
+        <div id="passkey" hidden>
+          <h3>Passkey</h3>
+          <p id="passkey-status" class="hint"></p>
+          <button id="passkey-add" class="secondary" type="button">Add a passkey</button>
+          <button id="passkey-remove" class="link" type="button" hidden>Remove the passkey</button>
+          <p id="passkey-error" class="error" role="alert"></p>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="filling-title">
+        <h2 id="filling-title">Fill codes into sites</h2>
+        <p id="filling-status" class="hint"></p>
+        <button id="filling-on" class="secondary" type="button">Turn on</button>
+        <button id="filling-off" class="link" type="button" hidden>Turn off</button>
+      </section>
+
+      <p class="version" id="version"></p>
+    </main>
+  </body>
+</html>

@@ -1,21 +1,12 @@
-// The popup: setting the password the first time, unlocking with it or a passkey, adding a
-// passkey, and locking again. Which of the three screens it shows is in `data-view` on the body.
+// The popup: setting the password the first time, unlocking with it or a passkey, the codes, and
+// locking again; everything else is on the settings page, which it opens in a tab. Which of the
+// three screens it shows is in `data-view` on the body.
 // It also pings the background and records the answer in `data-background`; the load test waits
 // for both (tools/load-test.ts).
-import {
-  addPasskey,
-  lock,
-  passkeyCredential,
-  removePasskey,
-  reset,
-  setUp,
-  state,
-  unlock,
-  unlockWithPasskey,
-  type LockState,
-} from '../lock/lock.js';
-import { hasSiteAccess, removeSiteAccess, requestSiteAccess } from '../fill/access.js';
-import { PasskeyError, createPasskey, passkeyOutput, passkeysNeedTab, passkeysSupported } from '../lock/passkey.js';
+import { lock, passkeyCredential, reset, setUp, state, unlock, unlockWithPasskey, type LockState } from '../lock/lock.js';
+import { passkeyOutput, passkeysNeedTab, passkeysSupported } from '../lock/passkey.js';
+import { autoLockText } from '../settings/choices.js';
+import { autoLockMinutes } from '../settings/prefs.js';
 import { pairingRecord } from '../sync/store.js';
 import { clearNotice, notice, sync } from '../sync/sync.js';
 import { clearCodes, renderCodes } from './codes.js';
@@ -34,14 +25,26 @@ const views: Record<LockState, HTMLElement> = {
   unlocked: element('unlocked'),
 };
 
+const settingsButton = element<HTMLButtonElement>('settings');
+
 function show(view: LockState): void {
   for (const [name, section] of Object.entries(views)) section.hidden = name !== view;
   document.body.dataset.view = view;
+  settingsButton.hidden = view === 'new';
   const focus = { new: 'setup-password', locked: 'unlock-password', unlocked: 'lock' }[view];
   element(focus).focus();
   void showPasskey(view);
   if (view === 'unlocked') void showPairing();
 }
+
+settingsButton.addEventListener('click', () => {
+  void chrome.runtime.openOptionsPage();
+  window.close();
+});
+
+void autoLockMinutes().then((minutes) => {
+  element('lock-hint').textContent = `CometOTP locks itself after ${autoLockText(minutes)} without use, when the computer locks and when the browser quits.`;
+});
 
 // Once paired, the codes; before, pairing, which happens in a tab of its own: it stays open while
 // the person uses their phone.
@@ -56,7 +59,6 @@ async function showPairing(): Promise<void> {
   unpaired.hidden = paired;
   codesPanel.hidden = !paired;
   document.body.dataset.paired = paired ? 'yes' : 'no';
-  void showFilling(paired);
   if (!paired) {
     clearCodes();
     const said = await notice();
@@ -73,37 +75,6 @@ async function showPairing(): Promise<void> {
   else await showPairing();
 }
 
-// Filling codes into sites, which needs access to them: asked for only here, never at install.
-const filling = element('filling');
-const fillingStatus = element('filling-status');
-const fillingOn = element<HTMLButtonElement>('filling-on');
-const fillingOff = element<HTMLButtonElement>('filling-off');
-
-async function showFilling(paired: boolean): Promise<void> {
-  filling.hidden = !paired;
-  if (!paired) return;
-  const on = await hasSiteAccess();
-  fillingStatus.textContent = on
-    ? 'On: code fields on sites show a CometOTP button. Choose a service there to fill its code.'
-    : 'Show a CometOTP button in code fields on sites, to fill a code without copying it. Your browser will ask to let CometOTP read and change sites: it only looks for code fields, and a site gets only the code you choose.';
-  fillingOn.hidden = on;
-  fillingOff.hidden = !on;
-  document.body.dataset.filling = on ? 'on' : 'off';
-}
-
-// The request must start in the click itself. Firefox closes the popup while it asks; the
-// background then runs the content script once access is granted.
-fillingOn.addEventListener('click', () => {
-  void requestSiteAccess()
-    .catch(() => false)
-    .then(() => showFilling(true));
-});
-fillingOff.addEventListener('click', () => {
-  void removeSiteAccess()
-    .catch(() => false)
-    .then(() => showFilling(true));
-});
-
 pairButton.addEventListener('click', () => {
   void chrome.tabs.create({ url: chrome.runtime.getURL('pair/pair.html') });
   window.close();
@@ -114,8 +85,8 @@ function message(error: unknown): string {
 }
 
 /** Opens the passkey page in a tab, for Firefox, which closes popups when the prompt appears. */
-function passkeyTab(action: 'add' | 'unlock'): void {
-  void chrome.tabs.create({ url: chrome.runtime.getURL(`passkey/passkey.html?action=${action}`) });
+function passkeyTab(): void {
+  void chrome.tabs.create({ url: chrome.runtime.getURL('passkey/passkey.html') });
   window.close();
 }
 
@@ -207,33 +178,22 @@ element('lock').addEventListener('click', () => {
   void lock().then(() => show('locked'));
 });
 
-// Passkeys, where the browser supports the PRF extension: shown on the locked screen once one is
-// added, and offered on the unlocked screen.
+// Unlocking with a passkey, where the browser supports the PRF extension and one was added on the
+// settings page.
 const passkeyUnlock = element('passkey-unlock');
 const passkeyUnlockSubmit = element<HTMLButtonElement>('passkey-unlock-submit');
 const passkeyUnlockError = element('passkey-unlock-error');
-const passkeyPanel = element('passkey');
-const passkeyStatus = element('passkey-status');
-const passkeyAdd = element<HTMLButtonElement>('passkey-add');
-const passkeyRemove = element<HTMLButtonElement>('passkey-remove');
-const passkeyError = element('passkey-error');
 
 async function showPasskey(view: LockState): Promise<void> {
   const supported = await passkeysSupported();
   const credential = supported ? await passkeyCredential() : null;
   passkeyUnlock.hidden = !(view === 'locked' && credential);
-  passkeyPanel.hidden = !(view === 'unlocked' && supported);
-  passkeyStatus.textContent = credential
-    ? 'A passkey can unlock CometOTP. Your password keeps working.'
-    : 'Unlock with Touch ID, Windows Hello, your phone or a security key instead of typing your password. Your password keeps working.';
-  passkeyAdd.textContent = credential ? 'Replace the passkey' : 'Add a passkey';
-  passkeyRemove.hidden = !credential;
   if (view === 'locked' && credential) passkeyUnlockSubmit.focus();
   document.body.dataset.passkey = credential ? 'added' : supported ? 'none' : 'unsupported';
 }
 
 passkeyUnlockSubmit.addEventListener('click', () => {
-  if (passkeysNeedTab()) return passkeyTab('unlock');
+  if (passkeysNeedTab()) return passkeyTab();
   passkeyUnlockError.textContent = '';
   void busy(passkeyUnlockSubmit, 'Waiting for the passkey…', async () => {
     const credential = await passkeyCredential();
@@ -248,24 +208,6 @@ passkeyUnlockSubmit.addEventListener('click', () => {
       passkeyUnlockError.textContent = message(error);
     },
   );
-});
-
-passkeyAdd.addEventListener('click', () => {
-  if (passkeysNeedTab()) return passkeyTab('add');
-  passkeyError.textContent = '';
-  void busy(passkeyAdd, 'Waiting for the passkey…', async () => {
-    const { credential, prf } = await createPasskey();
-    await addPasskey(credential, prf);
-  }).then(
-    () => showPasskey('unlocked'),
-    (error: unknown) => {
-      passkeyError.textContent = error instanceof PasskeyError ? error.message : `Could not add the passkey: ${message(error)}`;
-    },
-  );
-});
-
-passkeyRemove.addEventListener('click', () => {
-  void removePasskey().then(() => showPasskey('unlocked'));
 });
 
 element('version').textContent = `Version ${chrome.runtime.getManifest().version}`;

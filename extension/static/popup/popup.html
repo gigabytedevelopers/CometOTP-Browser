@@ -67,21 +67,10 @@
           <p id="copied" class="sr-only" aria-live="polite"></p>
         </div>
         <button id="lock" class="secondary" type="button">Lock now</button>
-        <p class="hint">CometOTP locks itself after 15 minutes without use, when the computer locks and when the browser quits.</p>
-        <div id="filling" class="panel" hidden>
-          <h2>Fill codes into sites</h2>
-          <p id="filling-status" class="hint"></p>
-          <button id="filling-on" class="secondary" type="button">Turn on</button>
-          <button id="filling-off" class="link" type="button" hidden>Turn off</button>
-        </div>
-        <div id="passkey" class="panel" hidden>
-          <h2>Passkey</h2>
-          <p id="passkey-status" class="hint"></p>
-          <button id="passkey-add" class="secondary" type="button">Add a passkey</button>
-          <button id="passkey-remove" class="link" type="button" hidden>Remove the passkey</button>
-          <p id="passkey-error" class="error" role="alert"></p>
-        </div>
+        <p id="lock-hint" class="hint"></p>
       </section>
+
+      <button id="settings" class="link" type="button" hidden>Settings</button>
 
       <p class="version" id="version"></p>
     </main>

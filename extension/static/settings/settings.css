@@ -1,0 +1,75 @@
+/* The settings page: the popup's look, in a page of its own. */
+main {
+  width: auto;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+header h1 {
+  margin: 0;
+  text-align: left;
+}
+
+h3 {
+  margin: 20px 0 2px;
+  font-size: 14px;
+}
+
+.panel p {
+  margin: 6px 0;
+}
+
+select {
+  font: inherit;
+  padding: 8px 10px;
+  margin: 6px 0 2px;
+  border: 1px solid var(--outline);
+  border-radius: var(--radius);
+  background: var(--field);
+  color: var(--text);
+}
+
+select:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+
+/* Buttons as wide as their words: the page is wider than the popup. */
+button {
+  width: auto;
+  padding: 9px 18px;
+}
+
+button.link {
+  padding: 9px 6px;
+}
+
+.hint:empty {
+  display: none;
+}
+
+form {
+  max-width: 360px;
+}
+
+form button {
+  align-self: flex-start;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+#disconnect-confirm {
+  margin-top: 10px;
+}

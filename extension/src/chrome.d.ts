@@ -25,6 +25,9 @@ declare namespace chrome.runtime {
   /** The full URL of a file in the extension. */
   function getURL(path: string): string;
 
+  /** Opens the extension's settings page (options_ui in the manifest), in a tab. */
+  function openOptionsPage(): Promise<void>;
+
   /** Sends a message to the extension's other pages and its background; resolves with the reply. */
   function sendMessage(message: unknown): Promise<unknown>;
 

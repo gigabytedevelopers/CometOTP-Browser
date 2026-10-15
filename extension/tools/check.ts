@@ -60,6 +60,8 @@ function referenced(m: Record<string, unknown>): string[] {
     icons(action.default_icon);
     if (typeof action.default_popup === 'string') out.push(action.default_popup);
   }
+  const options = m.options_ui as Record<string, unknown> | undefined;
+  if (typeof options?.page === 'string') out.push(options.page);
   const background = m.background as Record<string, unknown> | undefined;
   if (background) {
     if (typeof background.service_worker === 'string') out.push(background.service_worker);
