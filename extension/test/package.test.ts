@@ -44,6 +44,7 @@ const EXPECTED = [
   'popup/popup.html',
   'popup/popup.js',
   'sync/relay.js',
+  'sync/store.js',
 ];
 
 describe('the built packages', () => {

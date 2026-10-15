@@ -45,6 +45,10 @@ export async function putRecord(key: string, value: unknown): Promise<void> {
   await withStore('readwrite', (store) => store.put(value, key));
 }
 
+export async function deleteRecord(key: string): Promise<void> {
+  await withStore('readwrite', (store) => store.delete(key));
+}
+
 export async function clearRecords(): Promise<void> {
   await withStore('readwrite', (store) => store.clear());
 }
