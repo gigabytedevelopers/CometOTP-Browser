@@ -1,0 +1,101 @@
+name: Extension release
+
+# Builds the extension for release when a signed tag `extension-vX.Y.Z` is pushed
+# (.github/RELEASING.md). The tag must be signed, as GitHub verifies it, and match the extension's
+# version in extension/package.json. The packages are built and checked as the Extension workflow
+# does, loaded into Chrome and Firefox, and kept with the source and their checksums as the run's
+# artifact. Nothing is published from here: the GitHub release is made from that artifact by the
+# person who pushed the tag, so it shows as theirs, and the stores get the zips by hand.
+#
+# The zips are deterministic, so anyone can build the tag and compare checksums with the release.
+on:
+  push:
+    tags: ['extension-v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extension-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Reject incident indicators before running repository code
+        run: python3 .github/scripts/check_repository_security.py
+
+      - name: Check that the tag is signed and matches the extension's version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#extension-v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::$TAG is not extension-vX.Y.Z"
+            exit 1
+          fi
+          expected=$(node -p 'require("./extension/package.json").version')
+          if [ "$version" != "$expected" ]; then
+            echo "::error::$TAG does not match extension/package.json, which says $expected"
+            exit 1
+          fi
+          read -r type sha < <(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.type + " " + .object.sha')
+          if [ "$type" != tag ]; then
+            echo "::error::$TAG is a lightweight tag; push an annotated, signed one (git tag -s)"
+            exit 1
+          fi
+          if [ "$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq '.verification.verified')" != true ]; then
+            echo "::error::GitHub could not verify the signature on $TAG"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Show the tool versions
+        run: |
+          node --version
+          npm --version
+          google-chrome --version
+          firefox --version
+
+      - name: Install the locked dependencies without install scripts
+        run: npm ci --ignore-scripts
+
+      - name: Build, typecheck and test
+        run: |
+          npm run build --workspace @cometotp/protocol
+          npm run build --workspace @cometotp/relay
+          npm test --workspace @cometotp/extension
+
+      - name: Check the packages
+        run: npm run lint --workspace @cometotp/extension
+
+      - name: Load each build into Chrome and Firefox
+        run: npm run load-test --workspace @cometotp/extension -- --require-all
+
+      # addons.mozilla.org asks for the source of code a compiler wrote, with how to build it
+      # (extension/store/README.md): the repository at the tag.
+      - name: Gather the packages, the source and their checksums
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir release
+          cp "extension/dist/cometotp-chromium-$VERSION.zip" "extension/dist/cometotp-firefox-$VERSION.zip" release/
+          git archive --format=zip --prefix="cometotp-browser-$VERSION/" --output="release/cometotp-browser-source-$VERSION.zip" HEAD
+          (cd release && sha256sum -- *.zip > SHA256SUMS && cat SHA256SUMS)
+
+      - name: Keep them for the release
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cometotp-extension-${{ steps.version.outputs.version }}
+          path: release/
+          if-no-files-found: error
+          retention-days: 90

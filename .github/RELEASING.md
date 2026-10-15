@@ -1,7 +1,7 @@
 # Reviewing and merging
 
-How a change gets onto `main` in this repository, and how the relay's image is released. The
-extension adds its release steps here when it exists.
+How a change gets onto `main` in this repository, and how the relay's image and the browser
+extension are released.
 
 ## Who reviews
 
@@ -106,6 +106,51 @@ version is not the one in `relay/package.json`. It then builds the image nativel
 
 The first time, the package is private: in its settings on GitHub, change its visibility to public
 so that anyone can pull it, and check that it is linked to this repository.
+
+## Releasing the extension
+
+The extension's packages are built by `extension-release.yml` when a signed tag
+`extension-vX.Y.Z` is pushed. The workflow publishes nothing: you make the GitHub release from what
+it built, so the release shows as yours, and you upload the zips to the stores.
+
+1. Merge a pull request that sets the new version in `extension/package.json` (the manifests take
+   it from there).
+2. Tag that commit on `main` with your signature and push the tag:
+
+   ```bash
+   git tag -s extension-v0.1.0 -m "CometOTP extension 0.1.0"
+   git push origin extension-v0.1.0
+   ```
+
+   The workflow refuses a tag that is not annotated, whose signature GitHub cannot verify, or whose
+   version is not the one in `extension/package.json`. It then builds and tests both packages,
+   checks them, loads each into Chrome and Firefox, and keeps as its artifact the two zips, the
+   source at the tag (`git archive`) and their `SHA256SUMS`.
+3. Once it has passed, download that artifact, check it, and make the release from it:
+
+   ```bash
+   v=0.1.0
+   run=$(gh run list --workflow extension-release.yml --branch "extension-v$v" --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+   gh run download "$run" --name "cometotp-extension-$v" --dir "release-$v"
+   (cd "release-$v" && shasum -a 256 -c SHA256SUMS)
+   gh release create "extension-v$v" --verify-tag --title "CometOTP extension $v" --notes-file <notes> "release-$v"/*
+   ```
+
+   The zips are deterministic, so a build of the tag on any machine gives the same bytes.
+   Comparing one before releasing shows that CI built exactly the tagged source:
+
+   ```bash
+   git checkout "extension-v$v" && npm ci --ignore-scripts
+   npm run build --workspace @cometotp/protocol && npm run build --workspace @cometotp/extension
+   cmp extension/dist/cometotp-chromium-$v.zip "release-$v/cometotp-chromium-$v.zip"
+   cmp extension/dist/cometotp-firefox-$v.zip "release-$v/cometotp-firefox-$v.zip"
+   ```
+
+4. Upload the zips to the stores by hand, with the listing in `extension/store/README.md`:
+   - **Chrome Web Store:** `cometotp-chromium-X.Y.Z.zip`. The same zip goes to Microsoft Edge
+     Add-ons, if listed there.
+   - **Firefox Add-ons:** `cometotp-firefox-X.Y.Z.zip`, and the source zip when asked for it, as
+     its code was written by a compiler (TypeScript).
 
 ## Commit signatures
 
