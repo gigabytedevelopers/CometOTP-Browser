@@ -35,12 +35,15 @@ const EXPECTED = [
   'lock/strength.js',
   'manifest.json',
   'messages.js',
+  'pair/browser-name.js',
+  'pair/pairing.js',
   'pair/qr.js',
   'passkey/passkey.html',
   'passkey/passkey.js',
   'popup/popup.css',
   'popup/popup.html',
   'popup/popup.js',
+  'sync/relay.js',
 ];
 
 describe('the built packages', () => {
