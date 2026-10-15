@@ -116,7 +116,8 @@ the pairing QR.
 - **Auto-lock:** after 15 idle minutes (configurable), when the computer locks (`idle` API) and
   when the browser quits.
 - **Popup:** services with search, the current code and its countdown; click to copy.
-- **Filling:** a small CometOTP button in one-time-code fields lists the services linked to the
+- **Filling:** once the person turns it on, which asks the browser for access to sites (never at
+  install), a small CometOTP button in one-time-code fields lists the services linked to the
   site first, then issuer matches; choosing one fills its code into that field and links the site
   for next time (links are stored encrypted with M). Content scripts only ever receive a code,
   never a secret. Codes go only into the field the user chose, in the top frame or a same-site
@@ -204,6 +205,8 @@ test vectors so its crypto tests run in its own CI.
 3. **Browsers:** Chromium and Firefox in the first release, from one source.
 4. **Relay:** a small TypeScript server with SQLite, shipped as a Docker image; the official
    instance runs on a small VPS, and anyone can self-host the same image.
+5. **Access to sites:** asked for only when the person turns on filling codes into sites, so
+   installing shows no warning; until then, nothing of the extension runs on any site.
 
 ---
 

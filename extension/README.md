@@ -3,7 +3,8 @@
 One TypeScript source, built as a Manifest V3 extension for Chromium (Chrome, Edge, Brave, Opera,
 Vivaldi) and for Firefox. It has its own lock (a password set on first use, and optionally a
 passkey), pairs with CometOTP on a phone, and keeps an encrypted, read-only copy of the services
-the phone shares, whose codes it shows in its popup ([design](../docs/design.md), §10).
+the phone shares. It shows their codes in its popup and, once turned on, fills them into sign-in
+pages ([design](../docs/design.md), §10).
 
 ## The codes
 
@@ -17,6 +18,37 @@ which phone. Rows are built with DOM calls, never from HTML, as every name comes
 
 Codes are only as good as the clock: each answer from the relay carries its time, and when this
 computer's clock is more than 30 seconds off, the popup says so and how to fix it.
+
+## Filling codes into sites
+
+**Fill codes into sites** in the popup turns on a CometOTP button in one-time-code fields. Turning
+it on asks the browser for access to sites, which it words as reading and changing all your data
+on all websites; nothing is asked at install, and **Turn off** (or the browser's own settings for
+the extension) takes it back. Only https sites are covered, and http on this computer for testing.
+
+- **Which fields** (`src/fill/detect.ts`): those marked `autocomplete="one-time-code"`, and those
+  whose name, label or placeholder says so ("otp", "MFA code", "Authentication code"…), or say
+  "code" and take digits. Codes sent by text or email, recovery codes, coupons, postal codes and
+  card codes are left alone, as are fields that say they are something else. A row of five to eight
+  one-character boxes counts too, and gets one character per box.
+- **The button** appears at the end of such a field while it is focused (`src/fill/field.ts`). It
+  and the menu sit in a closed shadow root, styled through the CSS object model, so page styles
+  and strict content security policies leave them alone. Only a person's click opens the menu.
+- **The menu** is an extension page in a frame (`src/fill/menu.ts`), so the page sees neither the
+  services nor any secret: only the code, once chosen, in the field the menu was opened for. It
+  lists the services filled on this site before, then those whose issuer is the site's own name
+  ("GitHub" on github.com, not on github.evil.com), and finds the rest by search. It holds names
+  only: the background computes the code of the service chosen, links the service to the site
+  (sealed under the local key with the rest of the pairing) and sends the code to the field's
+  frame. So the frame never holds the local key, and needs no storage of its own, which Firefox
+  partitions for frames in other sites' pages.
+- **A service linked to other sites** is never listed elsewhere. Found by search, it is filled only
+  once the person confirms, as a site can pose as another to get its code.
+- **Frames:** codes go into the top page, or a frame from the same host or one within it
+  (`auth.example.com` on `example.com`). That is narrower than the same site, which would need the
+  public suffix list. The background decides from what the browser says about the frame and its
+  tab, never from what a page says, and gives each menu a random name that only the extension's
+  menu page in that tab can claim, once (`src/fill/menus.ts`).
 
 ## Keeping the copy current
 
@@ -147,10 +179,19 @@ adds it:
 | --- | --- |
 | `alarms` | To download the vault every 15 minutes, as the background does not stay running. |
 | `idle` | To lock after 15 minutes without input, and when the computer locks. |
+| `scripting` | To run the content script for filling codes, once access to sites is granted. |
 | `storage` | For `storage.session`, which holds the local key in memory while unlocked. |
 
 None shows a warning when installing. The relay needs no host permission: it allows any
 origin (protocol §6.1).
+
+Access to sites is an optional host permission (`OPTIONAL_HOSTS`): https sites, and http on this
+computer for testing. The extension asks for it only when someone turns on filling codes into
+sites, and the background runs the content script exactly while it is granted.
+
+Pages may load four files from the extension (`WEB_ACCESSIBLE`): the content script's three
+modules, which a content script imports from the page's side, and the menu page. So a page can
+tell that the extension is installed, and nothing more.
 
 The pages' content security policy allows only the extension's own scripts, and WebAssembly for
 Argon2id: nothing inline, nothing remote, no `eval` of JavaScript.
@@ -169,12 +210,15 @@ npm run load-test --workspace @cometotp/extension
 - **Tests** (`test/`): the manifests, the zip writer (read back by a reader written from the
   format's description), what each package holds, the lock's cryptography, the strength estimate,
   the browser's name, how the popup writes codes and times, which downloaded vaults may replace
-  the copy, and pairing. Pairing runs against a relay kept in memory and a phone that
+  the copy, which fields get the button (fields modelled on GitHub's, Google's, Microsoft's,
+  AWS's and Amazon's sign-in pages, and fields that only look like them), which sites and frames
+  may be filled and what the menu offers there, and pairing. Pairing runs against a relay kept in memory and a phone that
   does its side with the protocol package: the happy path, a code that expires unanswered, and
   every way it can fail.
 - **Package check** (`tools/check.ts`), the extension's lint. It checks that the manifest asks for no
-  permission outside `ALLOWED_PERMISSIONS`, keeps the content security policy, and names only
-  files that exist. It also checks that pages run no inline script or handler and load nothing
+  permission outside `ALLOWED_PERMISSIONS`, for access to sites only as `OPTIONAL_HOSTS`, exposes
+  to pages only `WEB_ACCESSIBLE`, keeps the content security policy, and names only files that
+  exist. The content script's modules must import only modules pages may load. It also checks that pages run no inline script or handler and load nothing
   from elsewhere, and that scripts use no `eval`, string timers, `document.write` or HTML injection
   and import only files in the package.
 - **Load test** (`tools/load-test.ts`): loads each build into a real browser, in a throwaway profile,
@@ -190,7 +234,14 @@ npm run load-test --workspace @cometotp/extension
   and the vault key must be kept sealed. The popup must then show that service's code as the
   protocol package computes it. The phone adds a Steam service and uploads again, and the popup
   must show both codes. Last, the phone deletes the vault, and the popup must say it removed the
-  browser, with the pairing and the copy gone. Chrome is driven through the DevTools protocol
+  browser, with the pairing and the copy gone. Before that, it fills codes into a page it serves
+  under a strict content security policy: the code field gets the button and the email field does
+  not; the menu finds the service by search and fills the field with its code; six one-digit
+  boxes get a digit each from the service, now linked and offered first; a frame from the same
+  host gets the button and one from another host does not; Escape closes the menu. Neither
+  browser, driven this way, can answer the prompt for access to sites or click in the popup as a
+  person would, so both load a copy of the build that has access already. In Firefox, which lets
+  an extension give such access back, **Turn off** must then remove the button. Chrome is driven through the DevTools protocol
   (`Extensions.loadUnpacked`), Firefox through WebDriver BiDi (`webExtension.install`). A browser
   that is not installed is skipped, except in CI, which runs both.
 
