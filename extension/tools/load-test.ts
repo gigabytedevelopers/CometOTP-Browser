@@ -464,13 +464,6 @@ async function relayCall(relay: string, method: string, path: string, token?: st
   return text ? JSON.parse(text) : null;
 }
 
-/**
- * Pairs the extension with a stand-in for CometOTP on a phone, which does the phone's side of
- * protocol §3.4 with the protocol package: the page is pointed at a relay on this computer, the
- * phone reads the code from it (in place of a camera), checks that the page shows its six digits,
- * and once the person confirms, uploads a vault with one service and sends its details. The page
- * must end paired with that service, keeping the vault key out of plain sight.
- */
 /** What the stand-in phone keeps once paired, to upload again and to remove the browser. */
 interface PhoneVault {
   relay: string;
@@ -489,6 +482,13 @@ async function upload(phone: PhoneVault, version: number): Promise<void> {
   await relayCall(phone.relay, 'PUT', `/v1/vault/${toBase64Url(phone.id)}`, toBase64Url(phone.write), await sealVault(phone.key, phone.id, version, json));
 }
 
+/**
+ * Pairs the extension with a stand-in for CometOTP on a phone, which does the phone's side of
+ * protocol §3.4 with the protocol package: the page is pointed at a relay on this computer, the
+ * phone reads the code from it (in place of a camera), checks that the page shows its six digits,
+ * and once the person confirms, uploads a vault with one service and sends its details. The page
+ * must end paired with that service, keeping the vault key out of plain sight.
+ */
 async function exercisePairing(evaluate: Evaluate, open: (path: string) => Promise<void>, relay: string): Promise<PhoneVault> {
   await open('pair/pair.html');
   await attribute(evaluate, 'the first code', 'document.body.dataset.step', (v) => v === 'code');
