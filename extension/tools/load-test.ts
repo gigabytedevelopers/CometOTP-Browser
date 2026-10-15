@@ -695,10 +695,12 @@ async function exercisePairing(evaluate: Evaluate, open: (path: string) => Promi
 /** The codes the popup shows, without the spaces it groups them with. */
 const READ_CODES = "JSON.stringify([...document.querySelectorAll('#services .code')].map((c) => c.textContent.replace(/ /g, '')))";
 
-/** Whether the popup's codes are the protocol package's for these services, now or a second ago. */
+/** Whether the popup's codes are the protocol package's for these services, now or just before. */
 async function sameCodes(shown: string[], services: Service[]): Promise<boolean> {
   const now = Date.now() / 1000;
-  for (const time of [now, now - 1]) {
+  // The popup recomputes codes once a second, so at the turn of a period it may show the last
+  // period's codes for a second, and reading them takes a moment more.
+  for (const time of [now, now - 1, now - 2]) {
     const expected = await Promise.all(services.map((service) => generateCode(service, time)));
     if (JSON.stringify(expected) === JSON.stringify(shown)) return true;
   }
