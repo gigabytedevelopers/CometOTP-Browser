@@ -27,6 +27,7 @@ const EXPECTED = [
   'lib/protocol/index.js',
   'lib/protocol/pairing.js',
   'lib/protocol/vault.js',
+  'lib/qrcode-generator/qrcode.js',
   'lock/crypto.js',
   'lock/lock.js',
   'lock/passkey.js',
@@ -34,6 +35,7 @@ const EXPECTED = [
   'lock/strength.js',
   'manifest.json',
   'messages.js',
+  'pair/qr.js',
   'passkey/passkey.html',
   'passkey/passkey.js',
   'popup/popup.css',
@@ -49,9 +51,14 @@ describe('the built packages', () => {
       assert.deepEqual(JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')), manifest(target, version()));
     });
 
-    it(`${target}: copies hash-wasm exactly as npm publishes it`, () => {
-      const published = fileURLToPath(import.meta.resolve('hash-wasm/dist/index.esm.js'));
-      assert.deepEqual(readFileSync(join(targetDir(target), 'lib/hash-wasm/index.esm.js')), readFileSync(published));
+    it(`${target}: copies hash-wasm and qrcode-generator exactly as npm publishes them`, () => {
+      for (const [specifier, copy] of [
+        ['hash-wasm/dist/index.esm.js', 'lib/hash-wasm/index.esm.js'],
+        ['qrcode-generator', 'lib/qrcode-generator/qrcode.js'],
+      ] as const) {
+        const published = fileURLToPath(import.meta.resolve(specifier));
+        assert.deepEqual(readFileSync(join(targetDir(target), copy)), readFileSync(published), specifier);
+      }
     });
 
     it(`${target}: its zip holds exactly the same files`, () => {

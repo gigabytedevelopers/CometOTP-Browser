@@ -3,8 +3,8 @@
 // store, dist/cometotp-<target>-<version>.zip. Nothing is bundled or minified, so the code in the
 // zips is the code tsc wrote, readable by store reviewers. Packages the extension imports are
 // copied in under lib/, unchanged, and the imports pointed at the copies: the protocol package,
-// and hash-wasm's published ES module build with its licence, which reviewers can compare with
-// npm's.
+// qrcode-generator's ES module build (its licence is in its header), and hash-wasm's with its
+// licence, which reviewers can compare with npm's.
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, posix, relative, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -43,6 +43,15 @@ const VENDORED: Vendored[] = [
         if (path.endsWith('.js')) files.set(`lib/protocol/${path}`, readFileSync(join(dir, path)));
       }
       return files;
+    },
+  },
+  {
+    // Published as qrcode.mjs; copied as .js, which every browser serves as a module script.
+    specifier: 'qrcode-generator',
+    entry: 'lib/qrcode-generator/qrcode.js',
+    files() {
+      const file = fileURLToPath(import.meta.resolve('qrcode-generator'));
+      return new Map([['lib/qrcode-generator/qrcode.js', readFileSync(file)]]);
     },
   },
   {
