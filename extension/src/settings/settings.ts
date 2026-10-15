@@ -109,7 +109,7 @@ disconnectYes.addEventListener('click', () => {
     report('browser_disconnected');
     disconnectDone.hidden = false;
     disconnectDone.textContent = told
-      ? 'Disconnected. This browser has no copy of your codes any more, and your phone stops listing it the next time it syncs.'
+      ? 'Disconnected. This browser has no copy of your codes any more, and your phone shows it as disconnected the next time it syncs.'
       : 'Disconnected here: this browser has no copy of your codes any more. The relay could not be reached, so remove this browser in CometOTP on your phone too.';
     document.body.dataset.disconnected = told ? 'relay' : 'here';
     await showBrowser();
