@@ -4,7 +4,6 @@
 // for both (tools/load-test.ts).
 import {
   addPasskey,
-  localKey,
   lock,
   passkeyCredential,
   removePasskey,
@@ -16,7 +15,9 @@ import {
   type LockState,
 } from '../lock/lock.js';
 import { PasskeyError, createPasskey, passkeyOutput, passkeysNeedTab, passkeysSupported } from '../lock/passkey.js';
-import { pairingRecord, vaultSecret } from '../sync/store.js';
+import { pairingRecord } from '../sync/store.js';
+import { clearNotice, notice, sync } from '../sync/sync.js';
+import { clearCodes, renderCodes } from './codes.js';
 import { MIN_LENGTH, SCORE_LABELS, problem, score } from '../lock/strength.js';
 import { isPong } from '../messages.js';
 
@@ -41,19 +42,33 @@ function show(view: LockState): void {
   if (view === 'unlocked') void showPairing();
 }
 
-// Pairing, which happens in a tab of its own: it stays open while the person uses their phone.
+// Once paired, the codes; before, pairing, which happens in a tab of its own: it stays open while
+// the person uses their phone.
+const unpaired = element('unpaired');
+const codesPanel = element('codes');
+const noticeLine = element('notice');
 const pairingStatus = element('pairing-status');
 const pairButton = element<HTMLButtonElement>('pair');
 
 async function showPairing(): Promise<void> {
-  const record = await pairingRecord();
-  const key = record ? await localKey() : null;
-  const phone = key ? (await vaultSecret(key))?.phone : null;
-  pairingStatus.textContent = record
-    ? `Paired with ${phone ?? 'your phone'}. Its codes will show here in the next version.`
-    : 'Pair this browser with CometOTP on your phone to use your codes here.';
-  pairButton.hidden = Boolean(record);
-  document.body.dataset.paired = record ? 'yes' : 'no';
+  const paired = Boolean(await pairingRecord());
+  unpaired.hidden = paired;
+  codesPanel.hidden = !paired;
+  document.body.dataset.paired = paired ? 'yes' : 'no';
+  if (!paired) {
+    clearCodes();
+    const said = await notice();
+    noticeLine.hidden = said !== 'disconnected';
+    noticeLine.textContent = 'Your phone removed this browser, so its copy was deleted. Pair it again to use your codes here.';
+    pairingStatus.textContent = 'Pair this browser with CometOTP on your phone to use your codes here.';
+    if (said) await clearNotice();
+    return;
+  }
+  // The copy at once, then whatever a download brings (protocol §7.2: on unlock and on opening).
+  await renderCodes();
+  await sync();
+  if (await pairingRecord()) await renderCodes();
+  else await showPairing();
 }
 
 pairButton.addEventListener('click', () => {

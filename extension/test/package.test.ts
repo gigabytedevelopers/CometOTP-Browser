@@ -43,6 +43,8 @@ const EXPECTED = [
   'pair/qr.js',
   'passkey/passkey.html',
   'passkey/passkey.js',
+  'popup/codes.js',
+  'popup/format.js',
   'popup/popup.css',
   'popup/popup.html',
   'popup/popup.js',

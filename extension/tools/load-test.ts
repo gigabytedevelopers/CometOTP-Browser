@@ -4,7 +4,9 @@
 // the lock as a person would, through the popup (see exerciseLock), and in Chrome adds a passkey
 // on a virtual authenticator with the PRF extension and unlocks with it (see exercisePasskey).
 // Last, it pairs with a stand-in phone through a relay it starts on this computer (see
-// exercisePairing).
+// exercisePairing), then checks the codes against the protocol package's, that a change on the
+// phone reaches the popup, and that the phone removing the browser wipes its copy (see
+// exerciseSync).
 //
 // - Chrome, driven through the DevTools protocol over a pipe: Extensions.loadUnpacked, which
 //   needs --enable-unsafe-extension-debugging.
@@ -29,6 +31,7 @@ import {
   TO_PHONE,
   buildPayload,
   derivePairingKeys,
+  generateCode,
   ecdh,
   fromBase32,
   fromBase64Url,
@@ -43,6 +46,7 @@ import {
   toBase64Url,
   type Bytes,
   type PairingMessage,
+  type Service,
 } from '@cometotp/protocol';
 
 import { GECKO_ID, type Target } from './manifest.js';
@@ -341,14 +345,11 @@ async function loadInChrome(binary: string, dir: string, relay: string): Promise
         sessionId,
       ));
     });
-    await exercisePairing(
-      evaluate,
-      async (path) => {
-        await cdp.send('Page.navigate', { url: `chrome-extension://${id}/${path}` }, sessionId);
-        await delay(500);
-      },
-      relay,
-    );
+    const openChrome = async (path: string) => {
+      await cdp.send('Page.navigate', { url: `chrome-extension://${id}/${path}` }, sessionId);
+      await delay(500);
+    };
+    await exerciseSync(evaluate, openChrome, await exercisePairing(evaluate, openChrome, relay));
     const errors = cdp.events.filter((e) => e.method === 'Runtime.exceptionThrown' && e.sessionId === sessionId);
     if (errors.length) throw new Error(`A page threw: ${JSON.stringify(errors[0]!.params.exceptionDetails)}`);
   } finally {
@@ -422,13 +423,10 @@ async function loadInFirefox(binary: string, dir: string, relay: string): Promis
       await exerciseLock(evaluate);
       // WebDriver BiDi has no virtual authenticator yet, so here only whether passkeys are offered.
       firefoxPasskeys = await attribute(evaluate, 'the passkey panel', 'document.body.dataset.passkey', () => true);
-      await exercisePairing(
-        evaluate,
-        async (path) => {
-          await bidi.send('browsingContext.navigate', { context, url: `moz-extension://${FIREFOX_UUID}/${path}`, wait: 'complete' });
-        },
-        relay,
-      );
+      const openFirefox = async (path: string) => {
+        await bidi.send('browsingContext.navigate', { context, url: `moz-extension://${FIREFOX_UUID}/${path}`, wait: 'complete' });
+      };
+      await exerciseSync(evaluate, openFirefox, await exercisePairing(evaluate, openFirefox, relay));
       await bidi.send('session.end').catch(() => undefined);
     } finally {
       socket.close();
@@ -473,7 +471,25 @@ async function relayCall(relay: string, method: string, path: string, token?: st
  * and once the person confirms, uploads a vault with one service and sends its details. The page
  * must end paired with that service, keeping the vault key out of plain sight.
  */
-async function exercisePairing(evaluate: Evaluate, open: (path: string) => Promise<void>, relay: string): Promise<void> {
+/** What the stand-in phone keeps once paired, to upload again and to remove the browser. */
+interface PhoneVault {
+  relay: string;
+  id: Bytes;
+  write: Bytes;
+  key: Bytes;
+  services: Service[];
+}
+
+async function serviceFor(secret: string, type: Service['type'], issuer: string, label: string): Promise<Service> {
+  return { id: await serviceId(fromBase32(secret)), type, secret, algorithm: 'SHA1', digits: type === 'steam' ? 5 : 6, period: 30, issuer, label };
+}
+
+async function upload(phone: PhoneVault, version: number): Promise<void> {
+  const json = buildPayload({ v: 1, phone: 'Load test phone', updated: Math.floor(Date.now() / 1000), services: phone.services });
+  await relayCall(phone.relay, 'PUT', `/v1/vault/${toBase64Url(phone.id)}`, toBase64Url(phone.write), await sealVault(phone.key, phone.id, version, json));
+}
+
+async function exercisePairing(evaluate: Evaluate, open: (path: string) => Promise<void>, relay: string): Promise<PhoneVault> {
   await open('pair/pair.html');
   await attribute(evaluate, 'the first code', 'document.body.dataset.step', (v) => v === 'code');
   await evaluate(click('relay-change'));
@@ -510,14 +526,8 @@ async function exercisePairing(evaluate: Evaluate, open: (path: string) => Promi
   const key = randomBytes(32);
   const sha = (bytes: Bytes) => toBase64Url(createHash('sha256').update(bytes).digest());
   await relayCall(relay, 'POST', '/v1/vaults', undefined, { id: toBase64Url(id), write: sha(write), read: sha(read) });
-  const secret = 'JBSWY3DPEHPK3PXP';
-  const json = buildPayload({
-    v: 1,
-    phone: 'Load test phone',
-    updated: Math.floor(Date.now() / 1000),
-    services: [{ id: await serviceId(fromBase32(secret)), type: 'totp', secret, algorithm: 'SHA1', digits: 6, period: 30, issuer: 'GitHub', label: 'alice' }],
-  });
-  await relayCall(relay, 'PUT', `/v1/vault/${toBase64Url(id)}`, toBase64Url(write), await sealVault(key, id, 1, json));
+  const phoneVault: PhoneVault = { relay, id, write, key, services: [await serviceFor('JBSWY3DPEHPK3PXP', 'totp', 'GitHub', 'alice')] };
+  await upload(phoneVault, 1);
   const vault = { t: 'vault' as const, id: toBase64Url(id), read: toBase64Url(read), key: toBase64Url(key) };
   await relayCall(relay, 'POST', `/v1/pair/${channel}/to-browser`, token, { m: toBase64Url(await sealPairingFrame(keys, code.channel, TO_BROWSER, 2, vault)) });
   if ((await fromBrowser(2)).t !== 'done') throw new Error('The browser did not say done');
@@ -536,10 +546,50 @@ async function exercisePairing(evaluate: Evaluate, open: (path: string) => Promi
   const sealed = (await evaluate(readRecord('vault-secret'))) ?? '';
   if (!sealed.includes('nonce') || sealed.includes(vault.key)) throw new Error('The vault key is not sealed');
 
+  return phoneVault;
+}
+
+/** The codes the popup shows, without the spaces it groups them with. */
+const READ_CODES = "JSON.stringify([...document.querySelectorAll('#services .code')].map((c) => c.textContent.replace(/ /g, '')))";
+
+/** Whether the popup's codes are the protocol package's for these services, now or a second ago. */
+async function sameCodes(shown: string[], services: Service[]): Promise<boolean> {
+  const now = Date.now() / 1000;
+  for (const time of [now, now - 1]) {
+    const expected = await Promise.all(services.map((service) => generateCode(service, time)));
+    if (JSON.stringify(expected) === JSON.stringify(shown)) return true;
+  }
+  return false;
+}
+
+/**
+ * After pairing: the popup shows the service with the code the protocol package computes. The
+ * phone then adds a service and uploads version 2, which the popup shows when it next opens. Last,
+ * the phone removes the browser (deletes the vault): the popup says so and the copy is gone.
+ */
+async function exerciseSync(evaluate: Evaluate, open: (path: string) => Promise<void>, phone: PhoneVault): Promise<void> {
   await open('popup/popup.html');
-  await attribute(evaluate, 'the popup to name the phone', "document.getElementById('pairing-status')?.textContent ?? ''", (v) =>
-    v.includes('Paired with Load test phone'),
+  await attribute(evaluate, 'the popup to show the codes', "document.getElementById('updated')?.textContent ?? ''", (v) =>
+    v.includes('from Load test phone'),
   );
+  const first = JSON.parse((await evaluate(READ_CODES)) ?? '[]') as string[];
+  if (!(await sameCodes(first, phone.services))) throw new Error(`The popup shows ${JSON.stringify(first)}, not the services' codes`);
+
+  phone.services.push(await serviceFor('GEZDGNBVGY3TQOJQ', 'steam', 'Steam', 'gamer'));
+  await upload(phone, 2);
+  await open('popup/popup.html');
+  await attribute(evaluate, 'the change on the phone', 'document.body.dataset.codes', (v) => v === '2');
+  const second = JSON.parse((await evaluate(READ_CODES)) ?? '[]') as string[];
+  if (!(await sameCodes(second, phone.services))) throw new Error(`After the change the popup shows ${JSON.stringify(second)}`);
+
+  await relayCall(phone.relay, 'DELETE', `/v1/vault/${toBase64Url(phone.id)}`, toBase64Url(phone.write));
+  await open('popup/popup.html');
+  await attribute(evaluate, 'the popup to say the phone removed it', "document.getElementById('notice')?.textContent ?? ''", (v) =>
+    v.includes('removed this browser'),
+  );
+  if ((await evaluate(readRecord('pairing'))) !== 'null') throw new Error('The pairing was kept after the phone removed the browser');
+  if ((await evaluate(readRecord('vault-blob'))) !== 'null') throw new Error('The copy was kept after the phone removed the browser');
+  if ((await evaluate("String(document.querySelectorAll('#services li').length)")) !== '0') throw new Error('The popup kept the rows');
 }
 
 const browsers: {
@@ -585,7 +635,7 @@ for (const browser of browsers) {
         ? 'a passkey unlocks it'
         : `passkeys ${firefoxPasskeys === 'unsupported' ? 'are not offered (no PRF)' : 'are offered'}`;
     console.log(
-      `${browser.name}: the ${browser.target} build loads, its popup reaches the background (${version()}), the lock works, ${passkeys}, and it pairs with a phone`,
+      `${browser.name}: the ${browser.target} build loads, its popup reaches the background (${version()}), the lock works, ${passkeys}, it pairs with a phone, and its codes follow the phone's`,
     );
   } catch (error) {
     failed = true;
