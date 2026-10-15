@@ -398,7 +398,8 @@ can answer `410` rather than `404`.
 - Uploads only happen while CometOTP is unlocked, because building the payload needs the database
   key. A failed upload MAY be retried in the background with the already-sealed blob.
 - While CometOTP has no lock, the phone uploads nothing and shows syncing as paused.
-- `410 gone` means the browser disconnected: the phone removes the pairing and says so.
+- `410 gone` means the browser disconnected, or the relay deleted the vault for going unread (§6.4):
+  the phone stops uploading for that pairing and says so.
   `401` or `404` means the relay lost the vault: the phone marks the pairing as needing to be
   paired again.
 
