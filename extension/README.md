@@ -4,7 +4,7 @@ One TypeScript source, built as a Manifest V3 extension for Chromium (Chrome, Ed
 Vivaldi) and for Firefox. It has its own lock (a password set on first use, and optionally a
 passkey), pairs with CometOTP on a phone, and keeps an encrypted, read-only copy of the services
 the phone shares. It shows their codes in its popup and, once turned on, fills them into sign-in
-pages ([design](../docs/design.md), §10).
+pages. Its settings page holds the rest, Disconnect included ([design](../docs/design.md), §10).
 
 ## The codes
 
@@ -21,10 +21,11 @@ computer's clock is more than 30 seconds off, the popup says so and how to fix i
 
 ## Filling codes into sites
 
-**Fill codes into sites** in the popup turns on a CometOTP button in one-time-code fields. Turning
-it on asks the browser for access to sites, which it words as reading and changing all your data
-on all websites; nothing is asked at install, and **Turn off** (or the browser's own settings for
-the extension) takes it back. Only https sites are covered, and http on this computer for testing.
+**Fill codes into sites** on the settings page turns on a CometOTP button in one-time-code
+fields. Turning it on asks the browser for access to sites, which it words as reading and changing
+all your data on all websites; nothing is asked at install, and **Turn off** (or the browser's own
+settings for the extension) takes it back. Only https sites are covered, and http on this computer
+for testing.
 
 - **Which fields** (`src/fill/detect.ts`): those marked `autocomplete="one-time-code"`, and those
   whose name, label or placeholder says so ("otp", "MFA code", "Authentication code"…), or say
@@ -70,6 +71,29 @@ What the popup says when something is wrong:
 | The relay cannot be reached for 30 minutes | The codes are from the last copy downloaded. |
 | The phone removed this browser (`410`) | It was disconnected: everything the pairing kept is deleted. |
 
+## Settings
+
+The settings page (`settings/settings.html`, `src/settings/`) opens in a tab, from **Settings** in
+the popup or from the browser's own menu for the extension. A tab, unlike the popup, stays open
+while Firefox shows the passkey and permission prompts.
+
+- **This browser:** what it is paired with and since when, and the relay it uses.
+- **Name:** the name the phone shows when pairing, such as "Chrome on macOS" unless the person
+  chooses another, in at most 64 bytes as the pairing code carries it. The phone keeps the name it
+  was given: renaming a paired browser happens in CometOTP, in Connected extensions.
+- **Disconnect** (protocol §7.2) deletes the vault on the relay with the read token, then
+  everything the pairing kept here (its details, the copy and the sites filled), even when the
+  relay cannot be reached. The phone gets `410` at its next upload and stops listing the browser.
+  If the relay could not be reached, the page says to remove the browser on the phone too. The
+  password and the settings stay, to pair again.
+- **Lock after** 1, 5, 15 (the default), 30 or 60 minutes, or 4 hours without input. The
+  background applies it each time it starts, and the page at once.
+- **Change the password,** given the current one. M stays the same and is sealed again under a key
+  from the new password and a new salt, so nothing sealed under M changes, and a passkey keeps
+  working. It works locked or unlocked.
+- **Passkey:** add, replace or remove one. Adding seals M, so it needs the extension unlocked.
+- **Fill codes into sites:** on and off (see above).
+
 ## Pairing
 
 **Pair with your phone** in the popup opens a tab (`pair/pair.html`), which stays open while you
@@ -106,7 +130,8 @@ The extension keeps everything private sealed under a random 32-byte local key M
   Without the password, nothing there opens, and each guess costs 64 MiB and three passes.
 - **While unlocked:** M in `storage.session`, which is in memory only, closed to content scripts,
   and cleared when the browser quits.
-- **Locking** takes M out of memory: after 15 minutes without input, when the computer locks
+- **Locking** takes M out of memory: after 15 minutes without input (or the time chosen in the
+  settings), when the computer locks
   (Firefox does not report this, so there the idle time applies), when the browser quits, and
   with **Lock now**.
 - **Setup** asks for at least 10 characters and a password the meter rates at least fair. The
@@ -119,9 +144,9 @@ The extension keeps everything private sealed under a random 32-byte local key M
   PRF output on a fixed input, and seals a second copy of M under a key from that output (HKDF).
   Only the authenticator can produce it; nothing is sent anywhere. The relying party is the
   extension itself (no RP ID is given, so no host permission is needed). The option appears only
-  where the browser reports PRF support, and the password always keeps working. Firefox closes
-  extension popups when the passkey prompt appears (Mozilla bug 2026687), so there the popup
-  opens a tab for it.
+  where the browser reports PRF support, and the password always keeps working. It is added on
+  the settings page. To unlock with it in Firefox, which closes extension popups when the passkey
+  prompt appears (Mozilla bug 2026687), the popup opens a tab.
 
 Argon2id comes from [hash-wasm](https://github.com/Daninet/hash-wasm) 4.12.0 (MIT), as
 WebCrypto has none: its published ES module build is copied into the extension unchanged, with
@@ -212,23 +237,29 @@ npm run load-test --workspace @cometotp/extension
   the browser's name, how the popup writes codes and times, which downloaded vaults may replace
   the copy, which fields get the button (fields modelled on GitHub's, Google's, Microsoft's,
   AWS's and Amazon's sign-in pages, and fields that only look like them), which sites and frames
-  may be filled and what the menu offers there, and pairing. Pairing runs against a relay kept in memory and a phone that
-  does its side with the protocol package: the happy path, a code that expires unanswered, and
-  every way it can fail.
+  may be filled and what the menu offers there, the settings' choices (lock times, and names the
+  pairing code can carry), a new password around the same local key, and pairing. Pairing runs
+  against a relay kept in memory and a phone that does its side with the protocol package: the
+  happy path, a code that expires unanswered, and every way it can fail.
 - **Package check** (`tools/check.ts`), the extension's lint. It checks that the manifest asks for no
   permission outside `ALLOWED_PERMISSIONS`, for access to sites only as `OPTIONAL_HOSTS`, exposes
   to pages only `WEB_ACCESSIBLE`, keeps the content security policy, and names only files that
-  exist. The content script's modules must import only modules pages may load. It also checks that pages run no inline script or handler and load nothing
-  from elsewhere, and that scripts use no `eval`, string timers, `document.write` or HTML injection
-  and import only files in the package.
+  exist. The content script's modules must import only modules pages may load. It also checks
+  that pages run no inline script or handler and load nothing from elsewhere, and that scripts use
+  no `eval`, string timers, `document.write` or HTML injection and import only files in the
+  package.
 - **Load test** (`tools/load-test.ts`): loads each build into a real browser, in a throwaway profile,
   and waits for its popup to reach its background. Then it uses the lock through the popup: it
   sets a password, checks that the local key is only in memory and that the record on disk holds
   neither it nor the password, locks and reloads, tries a wrong password, and unlocks again to
-  the same key. In Chrome it then attaches a virtual authenticator with PRF, adds a passkey, and
-  unlocks with it to the same key; an authenticator without PRF is refused, and the password
-  still works. WebDriver BiDi has no virtual authenticator yet, so in Firefox it only checks
-  whether passkeys are offered. Last, in both browsers, it starts the relay from this repository
+  the same key. In Chrome it then attaches a virtual authenticator with PRF, adds a passkey on
+  the settings page, and unlocks with it in the popup to the same key; an authenticator without
+  PRF is refused, and the password still works. WebDriver BiDi has no virtual authenticator yet,
+  so in Firefox it only checks whether passkeys are offered. On the settings page it chooses a
+  lock time (the popup must then say it), names the browser (the stand-in phone below checks the
+  name in the pairing code), and changes the password: a wrong current one is refused, the old
+  one stops unlocking and the new one unlocks to the same key, with the passkey kept. Then, in
+  both browsers, it starts the relay from this repository
   and pairs through it with a stand-in phone that reads the code from the page. It checks the
   six digits, uploads a vault and finishes. The page must end paired with that vault's service,
   and the vault key must be kept sealed. The popup must then show that service's code as the
@@ -241,9 +272,12 @@ npm run load-test --workspace @cometotp/extension
   host gets the button and one from another host does not; Escape closes the menu. Neither
   browser, driven this way, can answer the prompt for access to sites or click in the popup as a
   person would, so both load a copy of the build that has access already. In Firefox, which lets
-  an extension give such access back, **Turn off** must then remove the button. Chrome is driven through the DevTools protocol
-  (`Extensions.loadUnpacked`), Firefox through WebDriver BiDi (`webExtension.install`). A browser
-  that is not installed is skipped, except in CI, which runs both.
+  an extension give such access back, **Turn off** must then remove the button. Last, it pairs
+  again and disconnects from the settings page: the pairing, the copy and the site links must be
+  gone, and the stand-in phone's next upload must get `410`. Chrome is driven through the
+  DevTools protocol (`Extensions.loadUnpacked`), Firefox through WebDriver BiDi
+  (`webExtension.install`). A browser that is not installed is skipped, except in CI, which runs
+  both.
 
 There is no ESLint: TypeScript's strict checks and the package check cover what matters here,
 and the repository adds no dependency it can do without.
