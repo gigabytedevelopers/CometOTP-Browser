@@ -131,3 +131,10 @@ export async function download(relay: string, vault: string, readToken: string, 
   if (error.code === 'empty') return { kind: 'empty', date };
   throw error;
 }
+
+/** Deletes the vault with the read token, for Disconnect (protocol §7.2). A vault already gone is fine. */
+export async function deleteVault(relay: string, vault: string, readToken: string): Promise<void> {
+  const response = await call(relay, 'DELETE', `/v1/vault/${vault}`, { token: readToken });
+  if (response.ok || response.status === 410) return;
+  throw await failure(response);
+}

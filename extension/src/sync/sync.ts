@@ -12,7 +12,7 @@ import { blobVersion, fromBase64UrlOfLength, type Bytes, type Payload } from '@c
 
 import { localKey } from '../lock/lock.js';
 import { deleteRecord, getRecord, putRecord } from '../lock/storage.js';
-import { RelayError, download } from './relay.js';
+import { RelayError, deleteVault, download } from './relay.js';
 import { acceptVersion, forgetPairing, pairingRecord, vaultSecret } from './store.js';
 import { assess, readVault } from './vault.js';
 
@@ -86,9 +86,7 @@ export async function sync(now = Date.now()): Promise<void> {
   const status: Partial<SyncStatus> = { checkedAt: now, warning: null, skew: result.date === null ? null : result.date - now };
   if (result.kind === 'gone') {
     // The phone removed this browser: delete everything this pairing kept, and say so.
-    await forgetPairing();
-    await deleteRecord(PENDING);
-    await deleteRecord(STATUS);
+    await forgetCopy();
     await putRecord(NOTICE, 'disconnected');
     return;
   }
@@ -104,6 +102,30 @@ export async function sync(now = Date.now()): Promise<void> {
   }
   await setStatus(status);
   await acceptPending();
+}
+
+/** Deletes everything the pairing kept, and what the extension knew about its downloads. */
+async function forgetCopy(): Promise<void> {
+  await forgetPairing();
+  await deleteRecord(PENDING);
+  await deleteRecord(STATUS);
+}
+
+/**
+ * Disconnect (protocol §7.2): deletes the vault on the relay with the read token, so the phone
+ * learns at its next upload that this browser is gone, then everything the pairing kept here, even
+ * when the relay could not be reached. Says whether the relay heard it.
+ */
+export async function disconnect(): Promise<boolean> {
+  const record = await pairingRecord();
+  if (!record) return true;
+  const told = await deleteVault(record.relay, record.vault, record.read).then(
+    () => true,
+    () => false,
+  );
+  await forgetCopy();
+  await deleteRecord(NOTICE);
+  return told;
 }
 
 /** Checks a version kept aside, if unlocked, and takes it or warns (protocol §7.2). */
