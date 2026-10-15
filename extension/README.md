@@ -1,9 +1,42 @@
 # CometOTP browser extension
 
 One TypeScript source, built as a Manifest V3 extension for Chromium (Chrome, Edge, Brave, Opera,
-Vivaldi) and for Firefox. So far it has its own lock (a password set on first use, and optionally a
-passkey) and pairs with CometOTP on a phone, keeping an encrypted copy of its services. Showing
-the codes comes in the next pull requests ([design](../docs/design.md), §10).
+Vivaldi) and for Firefox. It has its own lock (a password set on first use, and optionally a
+passkey), pairs with CometOTP on a phone, and keeps an encrypted, read-only copy of the services
+the phone shares, whose codes it shows in its popup ([design](../docs/design.md), §10).
+
+## The codes
+
+Once paired and unlocked, the popup lists the copy's services in the phone's order
+(`src/popup/codes.ts`): each one's badge, issuer and label, its current code grouped as CometOTP
+groups it, and a bar for the time it has left, which turns red for the last five seconds. Codes
+are computed in the browser by the protocol package (§5: TOTP and Steam), and each is recomputed
+as its period turns. Clicking a row copies its code. A search box filters by issuer, label or tag,
+ignoring case and accents. Below the list it says how long ago the phone sent the copy, and from
+which phone. Rows are built with DOM calls, never from HTML, as every name comes from the vault.
+
+Codes are only as good as the clock: each answer from the relay carries its time, and when this
+computer's clock is more than 30 seconds off, the popup says so and how to fix it.
+
+## Keeping the copy current
+
+The extension downloads the vault (protocol §7.2, `src/sync/sync.ts`) when the browser starts,
+every 15 minutes, and each time the popup opens. Each request carries the version it has, so an
+unchanged vault costs one small answer (`304`). A newer version replaces the copy only if its
+version is higher than the one accepted, it opens with the vault key, and its payload is one this
+extension reads. The vault key is under the lock, so a version downloaded while locked is kept
+aside, still sealed, and checked at the next unlock.
+
+What the popup says when something is wrong:
+
+| What happened | What it says |
+| --- | --- |
+| The relay sent an older version than the one accepted | It was ignored, and the relay may be holding back updates. |
+| The vault does not open, or is not a vault | It was ignored; the codes are the ones from before. |
+| The payload is in a newer format | Update the extension. |
+| The relay no longer knows this browser (`401`, `404`) | Remove it in CometOTP, then pair again. The copy is kept. |
+| The relay cannot be reached for 30 minutes | The codes are from the last copy downloaded. |
+| The phone removed this browser (`410`) | It was disconnected: everything the pairing kept is deleted. |
 
 ## Pairing
 
@@ -112,10 +145,11 @@ adds it:
 
 | Permission | Why |
 | --- | --- |
+| `alarms` | To download the vault every 15 minutes, as the background does not stay running. |
 | `idle` | To lock after 15 minutes without input, and when the computer locks. |
 | `storage` | For `storage.session`, which holds the local key in memory while unlocked. |
 
-Neither shows a warning when installing. The relay needs no host permission: it allows any
+None shows a warning when installing. The relay needs no host permission: it allows any
 origin (protocol §6.1).
 
 The pages' content security policy allows only the extension's own scripts, and WebAssembly for
@@ -134,7 +168,8 @@ npm run load-test --workspace @cometotp/extension
   touches and no types package is needed.
 - **Tests** (`test/`): the manifests, the zip writer (read back by a reader written from the
   format's description), what each package holds, the lock's cryptography, the strength estimate,
-  the browser's name, and pairing. Pairing runs against a relay kept in memory and a phone that
+  the browser's name, how the popup writes codes and times, which downloaded vaults may replace
+  the copy, and pairing. Pairing runs against a relay kept in memory and a phone that
   does its side with the protocol package: the happy path, a code that expires unanswered, and
   every way it can fail.
 - **Package check** (`tools/check.ts`), the extension's lint. It checks that the manifest asks for no
@@ -152,7 +187,10 @@ npm run load-test --workspace @cometotp/extension
   whether passkeys are offered. Last, in both browsers, it starts the relay from this repository
   and pairs through it with a stand-in phone that reads the code from the page. It checks the
   six digits, uploads a vault and finishes. The page must end paired with that vault's service,
-  and the vault key must be kept sealed. Chrome is driven through the DevTools protocol
+  and the vault key must be kept sealed. The popup must then show that service's code as the
+  protocol package computes it. The phone adds a Steam service and uploads again, and the popup
+  must show both codes. Last, the phone deletes the vault, and the popup must say it removed the
+  browser, with the pairing and the copy gone. Chrome is driven through the DevTools protocol
   (`Extensions.loadUnpacked`), Firefox through WebDriver BiDi (`webExtension.install`). A browser
   that is not installed is skipped, except in CI, which runs both.
 
