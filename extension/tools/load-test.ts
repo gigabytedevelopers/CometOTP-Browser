@@ -3,6 +3,8 @@
 // with the extension's version (src/popup/popup.ts records it in `data-background`). Then it uses
 // the lock as a person would, through the popup (see exerciseLock), and in Chrome adds a passkey
 // on a virtual authenticator with the PRF extension and unlocks with it (see exercisePasskey).
+// Last, it pairs with a stand-in phone through a relay it starts on this computer (see
+// exercisePairing).
 //
 // - Chrome, driven through the DevTools protocol over a pipe: Extensions.loadUnpacked, which
 //   needs --enable-unsafe-extension-debugging.
@@ -15,14 +17,36 @@
 // Without a path, the usual install locations are tried, and a browser that is not found is
 // skipped, unless --require-all is given (as in CI).
 import { spawn, type ChildProcess } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 
+import {
+  TO_BROWSER,
+  TO_PHONE,
+  buildPayload,
+  derivePairingKeys,
+  ecdh,
+  fromBase32,
+  fromBase64Url,
+  generateKeyPair,
+  openPairingFrame,
+  pairingTranscript,
+  parsePairingUri,
+  randomBytes,
+  sealPairingFrame,
+  sealVault,
+  serviceId,
+  toBase64Url,
+  type Bytes,
+  type PairingMessage,
+} from '@cometotp/protocol';
+
 import { GECKO_ID, type Target } from './manifest.js';
-import { targetDir, version } from './package.js';
+import { EXTENSION_DIR, targetDir, version } from './package.js';
 
 const TIMEOUT_MS = 60_000;
 const FIREFOX_UUID = '6b1f2a1e-0d6c-4a52-9a0c-5f8d0c7e4b11';
@@ -57,20 +81,25 @@ type Evaluate = (expression: string) => Promise<string | undefined>;
 
 const PASSWORD = 'orbit lantern pickle';
 
-const READ_LOCK_RECORD = `(async () => {
-  const db = await new Promise((resolve, reject) => {
-    const req = indexedDB.open('cometotp');
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-  const value = await new Promise((resolve, reject) => {
-    const req = db.transaction('records').objectStore('records').get('lock');
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-  db.close();
-  return JSON.stringify(value ?? null);
-})()`;
+/** Reads a record from the extension's IndexedDB as JSON. */
+function readRecord(key: string): string {
+  return `(async () => {
+    const db = await new Promise((resolve, reject) => {
+      const req = indexedDB.open('cometotp');
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    const value = await new Promise((resolve, reject) => {
+      const req = db.transaction('records').objectStore('records').get(${JSON.stringify(key)});
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    db.close();
+    return JSON.stringify(value ?? null);
+  })()`;
+}
+
+const READ_LOCK_RECORD = readRecord('lock');
 
 const READ_SESSION_KEY = `(async () => (await chrome.storage.session.get('localKey')).localKey ?? 'none')()`;
 
@@ -252,7 +281,7 @@ function stop(child: ChildProcess, profile: string): void {
   }
 }
 
-async function loadInChrome(binary: string, dir: string): Promise<void> {
+async function loadInChrome(binary: string, dir: string, relay: string): Promise<void> {
   const profile = mkdtempSync(join(tmpdir(), 'cometotp-chrome-'));
   const args = [
     '--headless=new',
@@ -313,8 +342,16 @@ async function loadInChrome(binary: string, dir: string): Promise<void> {
         sessionId,
       ));
     });
+    await exercisePairing(
+      evaluate,
+      async (path) => {
+        await cdp.send('Page.navigate', { url: `chrome-extension://${id}/${path}` }, sessionId);
+        await delay(500);
+      },
+      relay,
+    );
     const errors = cdp.events.filter((e) => e.method === 'Runtime.exceptionThrown' && e.sessionId === sessionId);
-    if (errors.length) throw new Error(`The popup threw: ${JSON.stringify(errors[0]!.params.exceptionDetails)}`);
+    if (errors.length) throw new Error(`A page threw: ${JSON.stringify(errors[0]!.params.exceptionDetails)}`);
   } finally {
     stop(child, profile);
   }
@@ -334,7 +371,7 @@ function freePort(): Promise<number> {
 /** What the Firefox popup said about passkeys, for the summary. */
 let firefoxPasskeys = '';
 
-async function loadInFirefox(binary: string, dir: string): Promise<void> {
+async function loadInFirefox(binary: string, dir: string, relay: string): Promise<void> {
   const profile = mkdtempSync(join(tmpdir(), 'cometotp-firefox-'));
   const prefs = {
     'extensions.webextensions.uuids': JSON.stringify({ [GECKO_ID]: FIREFOX_UUID }),
@@ -386,6 +423,13 @@ async function loadInFirefox(binary: string, dir: string): Promise<void> {
       await exerciseLock(evaluate);
       // WebDriver BiDi has no virtual authenticator yet, so here only whether passkeys are offered.
       firefoxPasskeys = await attribute(evaluate, 'the passkey panel', 'document.body.dataset.passkey', () => true);
+      await exercisePairing(
+        evaluate,
+        async (path) => {
+          await bidi.send('browsingContext.navigate', { context, url: `moz-extension://${FIREFOX_UUID}/${path}`, wait: 'complete' });
+        },
+        relay,
+      );
       await bidi.send('session.end').catch(() => undefined);
     } finally {
       socket.close();
@@ -395,7 +439,116 @@ async function loadInFirefox(binary: string, dir: string): Promise<void> {
   }
 }
 
-const browsers: { name: string; target: Target; binary: string | undefined; load: (binary: string, dir: string) => Promise<void> }[] = [
+/** Starts the relay from this repository on a free port, in memory, with short long polls. */
+async function startRelay(): Promise<{ url: string; stop: () => void }> {
+  const port = await freePort();
+  const relay = spawn(process.execPath, [join(EXTENSION_DIR, '..', 'relay', 'dist', 'src', 'main.js')], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATABASE_PATH: ':memory:', LONG_POLL_MS: '2000' },
+  });
+  let log = '';
+  relay.stdout!.on('data', (chunk) => (log += String(chunk)));
+  await waitFor('the relay to listen', async () => (log.includes('listening') ? true : undefined));
+  return { url: `http://127.0.0.1:${port}`, stop: () => relay.kill('SIGKILL') };
+}
+
+async function relayCall(relay: string, method: string, path: string, token?: string, body?: unknown): Promise<any> {
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (body instanceof Uint8Array) headers['Content-Type'] = 'application/octet-stream';
+  else if (body !== undefined) headers['Content-Type'] = 'application/json';
+  const response = await fetch(relay + path, {
+    method,
+    headers,
+    body: body === undefined ? undefined : body instanceof Uint8Array ? Buffer.from(body) : JSON.stringify(body),
+  });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`${method} ${path}: ${response.status} ${text}`);
+  return text ? JSON.parse(text) : null;
+}
+
+/**
+ * Pairs the extension with a stand-in for CometOTP on a phone, which does the phone's side of
+ * protocol §3.4 with the protocol package: the page is pointed at a relay on this computer, the
+ * phone reads the code from it (in place of a camera), checks that the page shows its six digits,
+ * and once the person confirms, uploads a vault with one service and sends its details. The page
+ * must end paired with that service, keeping the vault key out of plain sight.
+ */
+async function exercisePairing(evaluate: Evaluate, open: (path: string) => Promise<void>, relay: string): Promise<void> {
+  await open('pair/pair.html');
+  await attribute(evaluate, 'the first code', 'document.body.dataset.step', (v) => v === 'code');
+  await evaluate(click('relay-change'));
+  await evaluate(fill('relay-form', { 'relay-input': relay }));
+  const uri = await attribute(evaluate, 'a code through the local relay', "document.getElementById('qr').dataset.uri ?? ''", (v) =>
+    v.includes(encodeURIComponent(relay)),
+  );
+
+  // The phone scans the code and answers with its hello, claiming the channel.
+  const code = parsePairingUri(uri, { allowInsecureRelay: true });
+  const channel = toBase64Url(code.channel);
+  const phone = await generateKeyPair();
+  const keys = await derivePairingKeys(await ecdh(phone.privateKey, code.browserPublicKey), code.secret, await pairingTranscript(code, phone.publicKey));
+  const hello = await sealPairingFrame(keys, code.channel, TO_BROWSER, 1, { t: 'hello', phone: 'Load test phone' }, phone.publicKey);
+  const { token } = await relayCall(relay, 'POST', `/v1/pair/${channel}/to-browser`, undefined, { m: toBase64Url(hello) });
+
+  const sas = await attribute(evaluate, 'the six digits', "document.body.dataset.step === 'compare' ? document.getElementById('sas').textContent : ''", (v) => v !== '');
+  if (sas !== keys.sas) throw new Error(`The page shows ${sas}, the phone ${keys.sas}`);
+  await evaluate(click('confirm'));
+
+  const fromBrowser = async (index: number): Promise<PairingMessage> => {
+    const frame = await waitFor(`the browser's message ${index}`, async () => {
+      const { messages } = await relayCall(relay, 'GET', `/v1/pair/${channel}/to-phone?after=${index - 1}`, token);
+      return messages[0] ? fromBase64Url(messages[0].m as string) : undefined;
+    });
+    return openPairingFrame(keys, code.channel, TO_PHONE, index, frame);
+  };
+  if ((await fromBrowser(1)).t !== 'confirm') throw new Error('The browser did not confirm');
+
+  // Both have confirmed: the phone makes the vault, uploads version 1 and sends its details.
+  const id = randomBytes(16);
+  const write = randomBytes(32);
+  const read = randomBytes(32);
+  const key = randomBytes(32);
+  const sha = (bytes: Bytes) => toBase64Url(createHash('sha256').update(bytes).digest());
+  await relayCall(relay, 'POST', '/v1/vaults', undefined, { id: toBase64Url(id), write: sha(write), read: sha(read) });
+  const secret = 'JBSWY3DPEHPK3PXP';
+  const json = buildPayload({
+    v: 1,
+    phone: 'Load test phone',
+    updated: Math.floor(Date.now() / 1000),
+    services: [{ id: await serviceId(fromBase32(secret)), type: 'totp', secret, algorithm: 'SHA1', digits: 6, period: 30, issuer: 'GitHub', label: 'alice' }],
+  });
+  await relayCall(relay, 'PUT', `/v1/vault/${toBase64Url(id)}`, toBase64Url(write), await sealVault(key, id, 1, json));
+  const vault = { t: 'vault' as const, id: toBase64Url(id), read: toBase64Url(read), key: toBase64Url(key) };
+  await relayCall(relay, 'POST', `/v1/pair/${channel}/to-browser`, token, { m: toBase64Url(await sealPairingFrame(keys, code.channel, TO_BROWSER, 2, vault)) });
+  if ((await fromBrowser(2)).t !== 'done') throw new Error('The browser did not say done');
+  // The page has already ended the channel; the phone deletes it too, whatever the relay says.
+  await relayCall(relay, 'DELETE', `/v1/pair/${channel}`, token).catch(() => undefined);
+
+  await attribute(evaluate, 'the page to say paired', 'document.body.dataset.step', (v) => v === 'done');
+  const message = await evaluate("document.getElementById('done-message').textContent");
+  if (!message?.includes('1 service')) throw new Error(`The page says "${message}"`);
+
+  // What was kept: the details to download with, the version accepted, and V only sealed.
+  const record = JSON.parse((await evaluate(readRecord('pairing'))) ?? 'null');
+  if (record?.vault !== vault.id || record.read !== vault.read || record.relay !== relay || record.version !== 1) {
+    throw new Error(`Unexpected pairing record ${JSON.stringify(record)}`);
+  }
+  const sealed = (await evaluate(readRecord('vault-secret'))) ?? '';
+  if (!sealed.includes('nonce') || sealed.includes(vault.key)) throw new Error('The vault key is not sealed');
+
+  await open('popup/popup.html');
+  await attribute(evaluate, 'the popup to name the phone', "document.getElementById('pairing-status')?.textContent ?? ''", (v) =>
+    v.includes('Paired with Load test phone'),
+  );
+}
+
+const browsers: {
+  name: string;
+  target: Target;
+  binary: string | undefined;
+  load: (binary: string, dir: string, relay: string) => Promise<void>;
+}[] = [
   {
     name: 'Chrome',
     target: 'chromium',
@@ -419,6 +572,7 @@ const browsers: { name: string; target: Target; binary: string | undefined; load
 ];
 
 let failed = false;
+const relay = await startRelay();
 for (const browser of browsers) {
   if (!browser.binary) {
     console.log(`${browser.name}: not found${process.argv.includes('--require-all') ? '' : ', skipped'}`);
@@ -426,15 +580,18 @@ for (const browser of browsers) {
     continue;
   }
   try {
-    await browser.load(browser.binary, targetDir(browser.target));
+    await browser.load(browser.binary, targetDir(browser.target), relay.url);
     const passkeys =
       browser.target === 'chromium'
         ? 'a passkey unlocks it'
         : `passkeys ${firefoxPasskeys === 'unsupported' ? 'are not offered (no PRF)' : 'are offered'}`;
-    console.log(`${browser.name}: the ${browser.target} build loads, its popup reaches the background (${version()}), the lock works, and ${passkeys}`);
+    console.log(
+      `${browser.name}: the ${browser.target} build loads, its popup reaches the background (${version()}), the lock works, ${passkeys}, and it pairs with a phone`,
+    );
   } catch (error) {
     failed = true;
     console.error(`${browser.name}: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
+relay.stop();
 process.exitCode = failed ? 1 : 0;

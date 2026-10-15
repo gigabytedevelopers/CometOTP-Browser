@@ -4,7 +4,8 @@ name: Extension
 # - Extension: TypeScript's strict checks, the package check (permissions, content security
 #   policy, inline or remote code), the tests, and both zips kept as an artifact to try;
 # - Extension in browsers: each build loaded into the runner's own Chrome and Firefox, where its
-#   popup must reach its background.
+#   popup must reach its background, its lock must work, and it must pair with a stand-in phone
+#   through the relay from this repository.
 #
 # Dependencies install from the lockfile with install scripts switched off, and the runner's own
 # Node and browsers are used. The only action besides checkout is GitHub's own upload-artifact.
@@ -81,7 +82,9 @@ jobs:
       - name: Build
         run: |
           npm run build --workspace @cometotp/protocol
+          npm run build --workspace @cometotp/relay
           npm run build --workspace @cometotp/extension
 
+      # The load test also starts the relay on this runner, and pairs through it with a stand-in phone.
       - name: Load each build into Chrome and Firefox
         run: npm run load-test --workspace @cometotp/extension -- --require-all
