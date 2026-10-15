@@ -183,6 +183,14 @@ To try a build by hand:
 - **Firefox:** `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on…** → any file in
   `extension/dist/firefox`.
 
+## Releasing
+
+A release comes from a signed tag `extension-vX.Y.Z`: `extension-release.yml` builds and checks
+it, and the GitHub release and the store uploads are made from what it built
+([.github/RELEASING.md](../.github/RELEASING.md)). What the stores show is in
+[store/README.md](store/README.md), with the screenshots in `store/screenshots/`, and the privacy
+policy is [docs/privacy.md](../docs/privacy.md).
+
 ## How the two builds differ
 
 Only in `manifest.json` (`tools/manifest.ts`):
