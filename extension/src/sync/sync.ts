@@ -74,7 +74,10 @@ export async function sync(now = Date.now()): Promise<void> {
   const record = await pairingRecord();
   if (!record) return;
   const pending = (await getRecord(PENDING)) as Kept | undefined;
-  const have = Math.max(record.version, pending?.version ?? 0);
+  // A version kept aside is not checked until the next unlock, so its number is the relay's word
+  // only. It saves downloading the same blob again, but any other version replaces it: one with a
+  // made-up high number cannot hold back the real ones.
+  const have = pending?.version ?? record.version;
   let result;
   try {
     result = await download(record.relay, record.vault, record.read, have || undefined);
@@ -98,7 +101,7 @@ export async function sync(now = Date.now()): Promise<void> {
       status.warning = 'bad-vault';
     }
     if (version && version < record.version) status.warning = 'rollback';
-    else if (version > have) await putRecord(PENDING, { version, blob: result.blob } satisfies Kept);
+    else if (version > record.version) await putRecord(PENDING, { version, blob: result.blob } satisfies Kept);
   }
   await setStatus(status);
   await acceptPending();
