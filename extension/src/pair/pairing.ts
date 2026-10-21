@@ -185,6 +185,8 @@ export class BrowserPairing {
       // The phone sends its vault only after the confirm, so before it only a cancel makes sense.
       throw new Stop((await this.open(2, early)).t === 'cancel' ? 'cancelled-on-phone' : 'broken');
     }
+    // Nothing came and nobody decided: the channel's lifetime ran out while the digits were shown.
+    if (this.decision === null) throw new Stop('expired');
     if (!(await decided)) throw new Stop('cancelled');
 
     await this.post({ t: 'confirm' });

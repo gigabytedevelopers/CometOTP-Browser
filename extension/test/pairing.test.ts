@@ -211,6 +211,14 @@ describe('pairing, the browser side', () => {
     assert.equal(world.stored.length, 0);
   });
 
+  it('gives up when the person never decides within the channel lifetime', async () => {
+    const world = new World();
+    await world.pairing(() => undefined).run();
+    assert.deepEqual(world.last(), { step: 'failed', reason: 'expired' });
+    assert.deepEqual(world.received, []);
+    assert.equal(world.stored.length, 0);
+  });
+
   it('says so when the relay cannot be reached', async () => {
     const world = new World();
     world.unreachable = true;
