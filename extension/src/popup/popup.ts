@@ -150,14 +150,20 @@ const resetPanel = element('reset');
 element('unlock-form').addEventListener('submit', (event) => {
   event.preventDefault();
   unlockError.textContent = '';
-  void busy(unlockSubmit, 'Unlocking…', () => unlock(unlockPassword.value)).then((unlocked) => {
-    unlockPassword.value = '';
-    if (unlocked) show('unlocked');
-    else {
-      unlockError.textContent = 'Wrong password.';
-      unlockPassword.focus();
-    }
-  });
+  void busy(unlockSubmit, 'Unlocking…', () => unlock(unlockPassword.value)).then(
+    (unlocked) => {
+      unlockPassword.value = '';
+      if (unlocked) show('unlocked');
+      else {
+        unlockError.textContent = 'Wrong password.';
+        unlockPassword.focus();
+      }
+    },
+    (error: unknown) => {
+      unlockPassword.value = '';
+      unlockError.textContent = `Could not unlock: ${message(error)}`;
+    },
+  );
 });
 
 element('forgot').addEventListener('click', () => {
