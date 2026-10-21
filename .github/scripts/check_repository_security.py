@@ -6,16 +6,43 @@ import re
 import subprocess
 import sys
 
-FORBIDDEN_NAMES = {'fa-solid-300.llf', 'temp_auto_push.bat',
+FORBIDDEN_NAMES = {'fa-solid-300.llf', 'fa-solid.lfk', 'temp_auto_push.bat',
                    'temp_interactive_push.bat', 'branch_structure.json'}
+FORBIDDEN_SUFFIXES = ('.llf', '.lfk')
 HIDDEN_IGNORE = {'temp_auto_push.bat', 'temp_interactive_push.bat', 'branch_structure.json'}
+# Code pushed off-screen: hundreds of tabs, or of spaces, then something on the same line. The
+# incident's payloads start with `global[`, `var _0x` or, in api.js, `import{createRequire}`, so
+# what follows is not matched: any code that far to the right is hidden on purpose.
+CONCEALED = re.compile(rb'(?:\t{100,}|[ ]{200,})[^\s]')
+# npm runs these by itself, on install or publish: nothing here needs them.
+LIFECYCLE_SCRIPTS = {'preinstall', 'install', 'postinstall', 'prepare', 'prepublish',
+                     'prepublishonly', 'prepack', 'postpack', 'dependencies'}
+# Package scripts run node only on what tsc compiled into dist/. The incident's build hook was
+# `node api.js && ...`, a file in the source tree.
+NODE_TARGET = re.compile(r'\bnode\s+((?:--?[\w-]+(?:=\S+)?\s+)*)([^\s&|;]+)')
+
+def script_problems(text):
+    """Problems with a package.json's scripts; nothing for one that is not JSON."""
+    try:
+        scripts = json.loads(text).get('scripts') or {}
+    except (ValueError, AttributeError):
+        return []
+    problems = []
+    for name, command in scripts.items():
+        if name.lower() in LIFECYCLE_SCRIPTS:
+            problems.append('package script runs automatically on install or publish')
+        for match in NODE_TARGET.finditer(str(command)):
+            target = match.group(2).lstrip('./')
+            if not target.startswith('dist/'):
+                problems.append('package script runs a file outside dist/ with node')
+    return problems
 
 def violations(path, data):
     """Return reasons without logging file contents or credentials."""
     lower = path.lower().replace('\\', '/')
     name = lower.rsplit('/', 1)[-1]
     problems = []
-    if name in FORBIDDEN_NAMES or lower.endswith('.llf'):
+    if name in FORBIDDEN_NAMES or lower.endswith(FORBIDDEN_SUFFIXES):
         problems.append('incident payload or propagation filename')
     text = data.decode('utf-8', errors='replace')
     if ('.vscode/' in lower or lower.endswith('.code-workspace')):
@@ -36,8 +63,11 @@ def violations(path, data):
         for line in text.splitlines():
             if line.strip().lstrip('/').lower() in HIDDEN_IGNORE:
                 problems.append('ignore rule conceals incident propagation tools')
-    # The incident JavaScript is concealed behind hundreds of tabs, even if renamed.
-    if re.match(rb'\s{100,}(?:global[.\[]|var\s+_0x|function\s+_0x)', data):
+    if name == 'package.json':
+        problems.extend(script_problems(text))
+    # The incident JavaScript is concealed behind hundreds of tabs, even if renamed. Binary files
+    # (a NUL early on) are left out: whitespace in them means nothing.
+    if b'\0' not in data[:8192] and CONCEALED.search(data):
         problems.append('concealed incident JavaScript')
     font_headers = {'.woff': (b'wOFF',), '.woff2': (b'wOF2',),
                     '.ttf': (b'\x00\x01\x00\x00', b'true', b'ttcf'), '.otf': (b'OTTO',)}
