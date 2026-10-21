@@ -43,6 +43,8 @@ export interface FillList {
 
 /** A service as the menu shows it: names only, never a secret. */
 export type MenuEntry = Pick<Service, 'id' | 'issuer' | 'label' | 'initials' | 'badge' | 'tags'> & {
+  /** Whether it is linked to this site: filled here (or on a site this one is within) before. */
+  here: boolean;
   /** The other sites it is linked to, when it is not linked to this one. */
   elsewhere: string[];
 };

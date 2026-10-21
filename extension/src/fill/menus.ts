@@ -17,7 +17,7 @@ import { pairingRecord } from '../sync/store.js';
 import { services } from '../sync/sync.js';
 import { addLink, readLinks } from './links.js';
 import type { ClaimedMenu, FillClose, FillCode, FillOpened, FillSize, MenuEntry, MenuList } from './messages.js';
-import { linkedElsewhere, offer, sameSite, siteHost, type Links } from './sites.js';
+import { linkedElsewhere, offer, sameSite, siteHost, within, type Links } from './sites.js';
 
 /** A menu, kept in storage.session: the background may be stopped while it is open. */
 interface Menu extends ClaimedMenu {
@@ -102,7 +102,8 @@ function claimed(name: string, sender: chrome.runtime.MessageSender): Promise<Me
 
 function entry(service: Service, links: Links, host: string): MenuEntry {
   const { id, issuer, label, initials, badge, tags } = service;
-  return { id, issuer, label, initials, badge, tags, elsewhere: linkedElsewhere(service, links, host) };
+  const here = (links[id] ?? []).some((linked) => within(host, linked));
+  return { id, issuer, label, initials, badge, tags, here, elsewhere: linkedElsewhere(service, links, host) };
 }
 
 export async function listMenu(name: string, sender: chrome.runtime.MessageSender): Promise<MenuList> {

@@ -119,7 +119,9 @@ the pairing QR.
 - **Filling:** once the person turns it on, which asks the browser for access to sites (never at
   install), a small CometOTP button in one-time-code fields lists the services linked to the
   site first, then issuer matches; choosing one fills its code into that field and links the site
-  for next time (links are stored encrypted with M). Content scripts only ever receive a code,
+  for next time (links are stored encrypted with M). A service not yet linked to the site is filled
+  only after the person confirms the site's address, since an issuer's name also matches look-alike
+  domains such as `github.top`. Content scripts only ever receive a code,
   never a secret. Codes go only into the field the user chose, in the top frame or a same-site
   frame.
 - **Clock:** codes depend on the computer's clock; the extension warns when it differs from the

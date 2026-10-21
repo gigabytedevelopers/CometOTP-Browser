@@ -45,6 +45,9 @@ for testing.
   partitions for frames in other sites' pages.
 - **A service linked to other sites** is never listed elsewhere. Found by search, it is filled only
   once the person confirms, as a site can pose as another to get its code.
+- **A service's first fill** on any site is confirmed too, showing the site's address: a matching
+  name proves nothing, as "GitHub" names github.top as well as github.com. Once confirmed, the
+  service is linked there and filled with one click.
 - **Frames:** codes go into the top page, or a frame from the same host or one within it
   (`auth.example.com` on `example.com`). That is narrower than the same site, which would need the
   public suffix list. The background decides from what the browser says about the frame and its
@@ -276,7 +279,8 @@ npm run load-test --workspace @cometotp/extension
   must show both codes. Last, the phone deletes the vault, and the popup must say it removed the
   browser, with the pairing and the copy gone. Before that, it fills codes into a page it serves
   under a strict content security policy: the code field gets the button and the email field does
-  not; the menu finds the service by search and fills the field with its code; six one-digit
+  not; the menu finds the service by search and, once the site is confirmed, fills the field with
+  its code; six one-digit
   boxes get a digit each from the service, now linked and offered first; a frame from the same
   host gets the button and one from another host does not; Escape closes the menu. Neither
   browser, driven this way, can answer the prompt for access to sites or click in the popup as a

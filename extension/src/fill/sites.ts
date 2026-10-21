@@ -1,7 +1,9 @@
 // Which sites codes may be filled on, and which services to offer there (design §4, Filling):
 // services linked to the site first, then those whose issuer names it. A service linked to other
 // sites is offered only on those, so a page elsewhere cannot have it listed; the person can still
-// search for it, and is asked first. Nothing here touches a page (test/sites.test.ts).
+// search for it, and is asked first. A name proves nothing about a site, as "GitHub" names
+// github.top as well as github.com, so a service's first fill on any site is asked about too
+// (src/fill/menu.ts). Nothing here touches a page (test/sites.test.ts).
 
 /**
  * The sites the content script may run on, once the person allows it: https, and http on this

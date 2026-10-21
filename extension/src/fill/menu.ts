@@ -2,8 +2,8 @@
 // cannot look into. It lists the services linked to the site, then those whose issuer names it,
 // and finds the rest by search. It holds names only: the background computes the code of the
 // service chosen, links it to the site and sends the code to the field (src/fill/menus.ts). A
-// service linked to other sites is filled here only once the person confirms, as this site may
-// be posing as one of them.
+// service not linked to this site yet is filled here only once the person confirms, as this site
+// may be posing as the one it belongs to.
 import { badgeColor, initials, matches } from '../popup/format.js';
 import {
   isClaimedMenu,
@@ -102,15 +102,20 @@ async function fill(service: MenuEntry): Promise<void> {
 
 function offerServices(claimed: ClaimedMenu, list: MenuList): void {
   const pick = (service: MenuEntry) => {
-    if (!service.elsewhere.length) {
+    if (service.here) {
       void fill(service);
       return;
     }
     choose.hidden = true;
     confirmPanel.hidden = false;
-    confirmText.textContent =
-      `${display(service)} was filled on ${service.elsewhere.join(', ')} before, not on ${claimed.host}. ` +
-      'A site can pose as another to get its code. Fill it here only if you trust this site.';
+    // The first fill on a site links the service to it, and a name that matches proves nothing:
+    // anyone can register github.top. So the person checks the address before it is linked.
+    confirmText.textContent = service.elsewhere.length
+      ? `${display(service)} was filled on ${service.elsewhere.join(', ')} before, not on ${claimed.host}. ` +
+        'A site can pose as another to get its code. Fill it here only if you trust this site.'
+      : `${display(service)} has not been filled on any site yet. Check that ${claimed.host} is its real ` +
+        'address: a site can pose as another to get its code. From then on it is offered here first.';
+    confirmFill.textContent = service.elsewhere.length ? 'Fill anyway' : `Fill on ${claimed.host}`;
     confirmCancel.onclick = () => {
       confirmPanel.hidden = true;
       choose.hidden = false;

@@ -925,8 +925,8 @@ async function codeSince(shown: string | undefined, service: Service, since: num
  * Filling codes into a page this test serves, under a strict content security policy. The popup
  * says filling is on (the build has access to sites already). Focusing the page's code field shows the
  * CometOTP button, and the email field does not. The button opens the menu: on 127.0.0.1 nothing is
- * offered at first, a search finds the service, and choosing it fills the field with its code and
- * links it to the site. Then six one-digit boxes get one digit each, from the service now offered
+ * offered at first, a search finds the service, and choosing it, then confirming the site as its
+ * first, fills the field with its code and links it to the site. Then six one-digit boxes get one digit each, from the service now offered
  * first; a field in a frame from the same host gets the button, and one from another host does
  * not; Escape closes the menu. Last, where the browser lets the extension give access back
  * (Firefox: Chrome keeps access the manifest asks for), Turn off removes the button.
@@ -990,6 +990,9 @@ async function exerciseFill(driver: FillDriver, phone: PhoneVault, pages: Pages,
   let chosen = Date.now();
   chosenFrom = await menu('location.hash');
   await menu("(document.querySelector('#found .service').click(), 'chosen')");
+  // Its first fill on a site asks the person to check the address.
+  await inMenu('the menu to ask about the site', "String(document.getElementById('confirm').hidden)", (v) => v === 'false');
+  await menu("(document.getElementById('confirm-fill').click(), 'confirmed')");
   await menuGone();
   const filled = await evaluate("document.getElementById('otp').value");
   if (!(await codeSince(filled, service, chosen))) throw new Error(`The field holds "${filled}", not the service's code`);
