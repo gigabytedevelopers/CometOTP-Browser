@@ -51,18 +51,19 @@ function checkName(name: unknown, what: string): string {
   return name;
 }
 
+/**
+ * Whether a URL's hostname is this computer or the local network. The address ranges only count
+ * for addresses: `10.relay.example.net` is a name anyone can point anywhere.
+ */
 function isLocalHost(hostname: string): boolean {
-  const host = hostname.replace(/^\[|\]$/g, '').toLowerCase();
-  return (
-    host === 'localhost' ||
-    host.endsWith('.localhost') ||
-    host === '::1' ||
-    /^127\./.test(host) ||
-    /^10\./.test(host) ||
-    /^192\.168\./.test(host) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
-    /^f[cd][0-9a-f]{2}:/.test(host)
-  );
+  const host = hostname.toLowerCase();
+  if (host === 'localhost' || host.endsWith('.localhost')) return true;
+  if (/^\[[0-9a-f:.]+\]$/.test(host)) {
+    const v6 = host.slice(1, -1);
+    return v6 === '::1' || /^f[cd][0-9a-f]{2}:/.test(v6);
+  }
+  if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) return false;
+  return /^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host);
 }
 
 /**

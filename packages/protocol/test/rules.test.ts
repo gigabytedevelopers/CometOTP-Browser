@@ -100,6 +100,12 @@ describe('pairing codes', () => {
     assert.equal(checkRelayUrl('http://192.168.1.20:8080', { allowInsecure: true }), 'http://192.168.1.20:8080');
     assert.equal(checkRelayUrl('http://localhost:8080', { allowInsecure: true }), 'http://localhost:8080');
     assert.throws(() => checkRelayUrl('http://relay.example.com', { allowInsecure: true }), fails('bad_relay'));
+    assert.equal(checkRelayUrl('http://[fd12:3456::1]:8080', { allowInsecure: true }), 'http://[fd12:3456::1]:8080');
+    assert.equal(checkRelayUrl('http://[::1]:8080', { allowInsecure: true }), 'http://[::1]:8080');
+    // Names that only look like local addresses can be pointed anywhere.
+    for (const name of ['10.relay.example.net', '127.evil.com', '192.168.1.1.nip.example', 'fd00.example.com']) {
+      assert.throws(() => checkRelayUrl(`http://${name}`, { allowInsecure: true }), fails('bad_relay'));
+    }
   });
 });
 
