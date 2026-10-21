@@ -379,5 +379,12 @@ describe('relay', () => {
       assert.equal((await make()).status, 201);
       assert.equal((await make()).status, 429);
     });
+
+    it('takes the address the proxy added, not ones the client put before it', async () => {
+      const put = (ip: string) => call('PUT', `/v1/pair/${id16()}`, { ip });
+      assert.equal((await put('192.0.2.1, 198.51.100.20')).status, 201);
+      assert.equal((await put('192.0.2.2, 198.51.100.20')).status, 201);
+      assert.equal((await put('192.0.2.3, 198.51.100.20')).status, 429);
+    });
   });
 });

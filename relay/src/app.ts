@@ -183,7 +183,9 @@ export function createRelay(config: RelayConfig, store: RelayStore, now: () => n
   }
 
   function clientKey(req: IncomingMessage): string {
-    const forwarded = config.trustProxy ? String(req.headers['x-forwarded-for'] ?? '').split(',')[0]?.trim() : '';
+    // The last address is the one the proxy added. Any before it came from the client, so a proxy
+    // that appends rather than replaces cannot let a client pick its own.
+    const forwarded = config.trustProxy ? String(req.headers['x-forwarded-for'] ?? '').split(',').pop()?.trim() : '';
     return limiter.addressId(forwarded || req.socket.remoteAddress || 'unknown');
   }
 

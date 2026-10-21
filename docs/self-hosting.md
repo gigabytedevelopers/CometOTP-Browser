@@ -138,8 +138,8 @@ relay on the loopback address only:
 The proxy must:
 
 - **set `X-Forwarded-For` to the client's address, replacing any value the client sent.** The
-  relay takes the first address in it for rate limits, so appending to the client's value lets
-  anyone pick their own;
+  relay takes the last address in it for rate limits, the one a proxy adds, so a proxy that
+  appends works too, but only when it is the one proxy in front of the relay;
 - **wait at least 30 seconds for an answer.** A pairing channel read waits up to 25;
 - **accept bodies of at least 1 MB.** The largest vault is 1,044,520 bytes;
 - **keep no access log**, and add no CORS or caching headers: the relay sets its own.

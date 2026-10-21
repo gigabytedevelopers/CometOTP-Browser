@@ -5,8 +5,9 @@ export interface RelayConfig {
   /** SQLite file; `:memory:` keeps everything in memory (tests). */
   databasePath: string;
   /**
-   * Take the client's address from X-Forwarded-For, for rate limits only. Set it when, and only
-   * when, the relay sits behind a reverse proxy that sets that header.
+   * Take the client's address from X-Forwarded-For (its last entry, which the proxy added), for
+   * rate limits only. Set it when, and only when, the relay sits behind a reverse proxy that sets
+   * that header.
    */
   trustProxy: boolean;
   /** How long a pairing channel GET waits for a message before answering with none. */
