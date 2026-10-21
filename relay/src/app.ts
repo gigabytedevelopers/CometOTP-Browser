@@ -166,6 +166,8 @@ export function createRelay(config: RelayConfig, store: RelayStore, now: () => n
       const done = () => {
         clearTimeout(timer);
         set!.delete(done);
+        // The last waiter to go takes the entry with it, or every unanswered channel would leave one.
+        if (set!.size === 0 && waiters.get(key) === set) waiters.delete(key);
         req.off('close', done);
         resolve();
       };
