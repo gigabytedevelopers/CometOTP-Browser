@@ -42,6 +42,20 @@ CometOTP shows the two-factor codes from CometOTP on your Android phone in your 
 Needs CometOTP for Android, with a lock (a PIN, a password or your screen lock) set.
 ```
 
+## Chrome Web Store: promo tile
+
+**Small promo tile:** `promo-tile/small-440x280.png`, 440 × 280: the mark in white over the brand
+indigo, the name, and the screenshots' headline. `promo-tile/draw.py` draws it from
+`static/icons/mark.svg`, so a change to the mark or the colours is redrawn rather than edited by
+hand. It needs Python 3 with Pillow, and Inter's variable font:
+
+```bash
+py -3 -I extension/store/promo-tile/draw.py "C:/Windows/Fonts/Inter-VariableFont_opsz,wght.ttf"
+```
+
+**Marquee promo tile** (1400 × 560): none. It is optional, and shown only if the store features
+the extension.
+
 ## Chrome Web Store: privacy practices
 
 **Single purpose:** Shows the two-factor codes from the CometOTP app on the person's phone, and
