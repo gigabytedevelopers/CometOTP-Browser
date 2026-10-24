@@ -56,6 +56,7 @@ import {
   type Service,
 } from '@cometotp/protocol';
 
+import { API_SECRET } from '../src/usage/measurement.js';
 import { GECKO_ID, type Target } from './manifest.js';
 import { EXTENSION_DIR, targetDir, version } from './package.js';
 
@@ -253,16 +254,20 @@ const NEW_PASSWORD = 'quartz meadow lantern';
 const BROWSER_NAME = 'Load test browser';
 
 /**
- * The settings page: choosing how soon it locks (the popup then says so), naming the browser for
- * pairing (the stand-in phone checks the name in exercisePairing), and changing the password: a
- * wrong current one is refused; after the change the old one no longer unlocks and the new one
- * unlocks to the same local key, with the passkey kept. Then it changes the password back.
+ * The settings page: usage statistics are off, with no id kept, as nobody turned them on (the test
+ * never turns them on: it would send to Google Analytics). Then choosing how soon it locks (the
+ * popup then says so), naming the browser for pairing (the stand-in phone checks the name in
+ * exercisePairing), and changing the password: a wrong current one is refused; after the change
+ * the old one no longer unlocks and the new one unlocks to the same local key, with the passkey
+ * kept. Then it changes the password back.
  */
 async function exerciseSettings(evaluate: Evaluate, open: (path: string) => Promise<void>): Promise<void> {
   const select = (minutes: number) =>
     `(() => { const s = document.getElementById('auto-lock'); s.value = '${minutes}'; s.dispatchEvent(new Event('change')); return 'chosen'; })()`;
   await open('settings/settings.html');
   await attribute(evaluate, 'the settings page', 'document.body.dataset.autoLock', (v) => v === '15');
+  await attribute(evaluate, 'usage statistics to be off', 'document.body.dataset.usage', (v) => v === (API_SECRET ? 'off' : 'unavailable'));
+  if ((await evaluate(readRecord('usage-stats'))) !== 'null') throw new Error('Usage statistics have an id although nobody turned them on');
   const passkey = await evaluate('document.body.dataset.passkey');
   await evaluate(select(5));
   await attribute(evaluate, 'the lock time to be kept', readRecord('auto-lock'), (v) => v === '5');

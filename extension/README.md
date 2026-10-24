@@ -96,6 +96,30 @@ while Firefox shows the passkey and permission prompts.
   working. It works locked or unlocked.
 - **Passkey:** add, replace or remove one. Adding seals M, so it needs the extension unlocked.
 - **Fill codes into sites:** on and off (see above).
+- **Usage statistics:** off unless the person turns them on (see below).
+
+## Usage statistics
+
+Off until the person turns them on in the settings ([privacy policy](../docs/privacy.md)).
+Turning them on makes a random id, kept with the other records; turning them off deletes it, so
+nothing that tells the browser apart exists without consent. Firefox has a switch of its own for
+this data (`technicalAndInteraction`, optional in the manifest, and maybe on from install), which
+must be on too: the settings ask Firefox when it is off, and the background checks it before each
+message.
+
+When on, the background (`src/usage/`) tells Google Analytics, through the Measurement Protocol at
+Google's endpoint that collects in the EU, about five things: the popup opening, a code copied or
+filled, the browser paired or disconnected. Pages ask the background with a message, which it
+takes only from the extension's own pages. Each event carries the extension's version, the
+browser's family, the random id and a session that ends after 30 minutes without events, and
+marks consent for ads as denied. Nothing about services, codes or sites is sent. Manifest V3 runs
+no code from elsewhere, so this is plain `fetch`, not Google's tag, and Google's endpoint allows
+the extension's origin, so no host permission is needed.
+
+The stream's id and secret are in `src/usage/measurement.ts`. The secret ships in the package, so
+anyone could send made-up events with it; that would skew the numbers and nothing else. Without a
+secret the settings do not offer usage statistics. The load test checks that they are off, and
+never turns them on.
 
 ## Pairing
 
@@ -202,8 +226,9 @@ Only in `manifest.json` (`tools/manifest.ts`):
 - **Firefox** runs it as module background scripts, and needs Firefox 140 or later (the extended
   support release that knows `data_collection_permissions`). Its id is
   `cometotp@gigabytedevelopers.com`, which cannot change once the extension is on
-  addons.mozilla.org. It declares that no data is collected: nothing leaves the browser except to
-  the relay, which is how the extension works.
+  addons.mozilla.org. It declares that no data is required, as nothing leaves the browser except
+  to the relay, which is how the extension works; and technical and interaction data as optional,
+  for the usage statistics the person may turn on.
 
 ## Permissions
 
@@ -220,7 +245,7 @@ adds it:
 | `storage` | For `storage.session`, which holds the local key in memory while unlocked. |
 
 None shows a warning when installing. The relay needs no host permission: it allows any
-origin (protocol §6.1).
+origin (protocol §6.1). Neither does Google Analytics' endpoint, for usage statistics.
 
 Access to sites is an optional host permission (`OPTIONAL_HOSTS`): https sites, and http on this
 computer for testing. The extension asks for it only when someone turns on filling codes into
@@ -250,9 +275,10 @@ npm run load-test --workspace @cometotp/extension
   the copy, which fields get the button (fields modelled on GitHub's, Google's, Microsoft's,
   AWS's and Amazon's sign-in pages, and fields that only look like them), which sites and frames
   may be filled and what the menu offers there, the settings' choices (lock times, and names the
-  pairing code can carry), a new password around the same local key, and pairing. Pairing runs
-  against a relay kept in memory and a phone that does its side with the protocol package: the
-  happy path, a code that expires unanswered, and every way it can fail.
+  pairing code can carry), what usage statistics may send and how, a new password around the same
+  local key, and pairing. Pairing runs against a relay kept in memory and a phone that does its
+  side with the protocol package: the happy path, a code that expires unanswered, and every way it
+  can fail.
 - **Package check** (`tools/check.ts`), the extension's lint. It checks that the manifest asks for no
   permission outside `ALLOWED_PERMISSIONS`, for access to sites only as `OPTIONAL_HOSTS`, exposes
   to pages only `WEB_ACCESSIBLE`, keeps the content security policy, and names only files that
@@ -267,9 +293,10 @@ npm run load-test --workspace @cometotp/extension
   the same key. In Chrome it then attaches a virtual authenticator with PRF, adds a passkey on
   the settings page, and unlocks with it in the popup to the same key; an authenticator without
   PRF is refused, and the password still works. WebDriver BiDi has no virtual authenticator yet,
-  so in Firefox it only checks whether passkeys are offered. On the settings page it chooses a
-  lock time (the popup must then say it), names the browser (the stand-in phone below checks the
-  name in the pairing code), and changes the password: a wrong current one is refused, the old
+  so in Firefox it only checks whether passkeys are offered. On the settings page it checks that
+  usage statistics are off with no id kept, chooses a lock time (the popup must then say it),
+  names the browser (the stand-in phone below checks the name in the pairing code), and changes
+  the password: a wrong current one is refused, the old
   one stops unlocking and the new one unlocks to the same key, with the passkey kept. Then, in
   both browsers, it starts the relay from this repository
   and pairs through it with a stand-in phone that reads the code from the page. It checks the

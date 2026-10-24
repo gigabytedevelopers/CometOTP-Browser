@@ -69,6 +69,8 @@ const EXPECTED = [
   'sync/store.js',
   'sync/sync.js',
   'sync/vault.js',
+  'usage/measurement.js',
+  'usage/usage.js',
 ];
 
 describe('the built packages', () => {

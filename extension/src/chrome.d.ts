@@ -95,9 +95,14 @@ declare namespace chrome.tabs {
 declare namespace chrome.permissions {
   interface Permissions {
     origins?: string[];
+    /** Firefox only: the optional data types the person agreed to (data_collection_permissions). */
+    data_collection?: string[];
   }
 
   function contains(permissions: Permissions): Promise<boolean>;
+
+  /** What is granted now; Firefox includes `data_collection`, Chromium has none. */
+  function getAll(): Promise<Permissions>;
 
   /** Asks the person; only from a click or another user action. */
   function request(permissions: Permissions): Promise<boolean>;

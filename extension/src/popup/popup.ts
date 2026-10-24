@@ -12,6 +12,7 @@ import { clearNotice, notice, sync } from '../sync/sync.js';
 import { clearCodes, renderCodes } from './codes.js';
 import { MIN_LENGTH, SCORE_LABELS, problem, score } from '../lock/strength.js';
 import { isPong } from '../messages.js';
+import { report } from '../usage/usage.js';
 
 function element<T extends HTMLElement>(id: string): T {
   const found = document.getElementById(id);
@@ -218,6 +219,7 @@ passkeyUnlockSubmit.addEventListener('click', () => {
 
 element('version').textContent = `Version ${chrome.runtime.getManifest().version}`;
 void state().then(show);
+report('popup_opened');
 
 chrome.runtime.sendMessage({ type: 'ping' }).then(
   (reply) => {

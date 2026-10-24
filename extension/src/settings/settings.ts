@@ -1,8 +1,9 @@
 // The settings page, which the popup and the browser's own extension menu open in a tab: this
 // browser's pairing (its relay, the name it gives the phone, and Disconnect), the lock (how soon it
-// locks, the password and the passkey), and filling codes into sites. In a tab, unlike the popup,
-// Firefox shows the passkey and permission prompts without closing the page. What each part says
-// is in data attributes on the body, which the load test reads (tools/load-test.ts).
+// locks, the password and the passkey), filling codes into sites, and usage statistics. In a tab,
+// unlike the popup, Firefox shows the passkey and permission prompts without closing the page.
+// What each part says is in data attributes on the body, which the load test reads
+// (tools/load-test.ts).
 import { hasSiteAccess, removeSiteAccess, requestSiteAccess } from '../fill/access.js';
 import { addPasskey, changePassword, localKey, passkeyCredential, removePasskey, state, type LockState } from '../lock/lock.js';
 import { PasskeyError, createPasskey, passkeysSupported } from '../lock/passkey.js';
@@ -11,6 +12,7 @@ import { OFFICIAL_RELAY } from '../sync/relay.js';
 import { chosenRelay, pairingRecord, vaultSecret } from '../sync/store.js';
 import { disconnect } from '../sync/sync.js';
 import { thisBrowser } from '../pair/browser-name.js';
+import { browserAllowsUsage, report, requestBrowserUsage, turnUsageOff, turnUsageOn, usageOffered, usageOn } from '../usage/usage.js';
 import { AUTO_LOCK_CHOICES, autoLockText, nameProblem } from './choices.js';
 import { autoLockMinutes, pairingName, setAutoLockMinutes, setPairingName } from './prefs.js';
 
@@ -104,6 +106,7 @@ element('disconnect-cancel').addEventListener('click', () => {
 
 disconnectYes.addEventListener('click', () => {
   void busy(disconnectYes, 'Disconnecting…', () => disconnect()).then(async (told) => {
+    report('browser_disconnected');
     disconnectDone.hidden = false;
     disconnectDone.textContent = told
       ? 'Disconnected. This browser has no copy of your codes any more, and your phone stops listing it the next time it syncs.'
@@ -258,6 +261,47 @@ fillingOff.addEventListener('click', () => {
     .then(() => showFilling());
 });
 
+// Usage statistics, off until the person turns them on here (docs/privacy.md). In Firefox, its own
+// switch for usage data must be on too: asking for it must start in the click itself, so whether
+// to ask is worked out beforehand.
+const usagePanel = element('usage');
+const usageStatus = element('usage-status');
+const usageOnButton = element<HTMLButtonElement>('usage-on');
+const usageOffButton = element<HTMLButtonElement>('usage-off');
+let askBrowser = false;
+
+/** What usage statistics send, after "CometOTP". */
+const USAGE_SENT =
+  'tells Google Analytics when you open it, copy or fill a code, and pair or disconnect this browser, with its version and whether the browser is Firefox or Chrome-like, under a random ID made for this. Never your codes, your services or the sites you use.';
+
+async function showUsage(): Promise<void> {
+  const on = await usageOn();
+  const allowed = await browserAllowsUsage();
+  askBrowser = !allowed;
+  usagePanel.hidden = !usageOffered;
+  usageStatus.textContent = !on
+    ? `Off. If you turn them on, CometOTP ${USAGE_SENT} Turning them off deletes the ID.`
+    : allowed
+      ? `On: CometOTP ${USAGE_SENT} Turning them off stops them and deletes the ID.`
+      : "On here, but Firefox's own setting for technical and interaction data is off, so nothing is sent. Turn on to let Firefox ask you again.";
+  usageOnButton.hidden = on && allowed;
+  usageOffButton.hidden = !on;
+  document.body.dataset.usage = !usageOffered ? 'unavailable' : !on ? 'off' : allowed ? 'on' : 'blocked';
+}
+
+usageOnButton.addEventListener('click', () => {
+  const asked = askBrowser ? requestBrowserUsage() : Promise.resolve(true);
+  void asked
+    .catch(() => false)
+    .then(async (granted) => {
+      if (granted) await turnUsageOn();
+    })
+    .then(() => showUsage());
+});
+usageOffButton.addEventListener('click', () => {
+  void turnUsageOff().then(() => showUsage());
+});
+
 /** Shows every part as it is now. Run again when the page comes back into view: the popup may have unlocked meanwhile. */
 async function render(): Promise<void> {
   const view = await state();
@@ -267,7 +311,7 @@ async function render(): Promise<void> {
       ? 'Set a password in CometOTP first: click its button in the toolbar.'
       : 'CometOTP is locked. Some settings need it unlocked: click its button in the toolbar to unlock it.';
   passwordForm.hidden = view === 'new';
-  await Promise.all([showBrowser(), showAutoLock(), showPasskey(view), showFilling()]);
+  await Promise.all([showBrowser(), showAutoLock(), showPasskey(view), showFilling(), showUsage()]);
   document.body.dataset.view = view;
 }
 

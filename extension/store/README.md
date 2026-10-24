@@ -37,6 +37,8 @@ CometOTP shows the two-factor codes from CometOTP on your Android phone in your 
 
 • Our relay or yours. Sync goes through a small relay that stores only encrypted data and keeps no IP addresses. You can run your own.
 
+• No ads, no accounts. Usage statistics are off unless you turn them on in the settings, and never include your codes, your services or the sites you use.
+
 • Open source: https://github.com/gigabytedevelopers/CometOTP-Browser
 
 Needs CometOTP for Android, with a lock (a PIN, a password or your screen lock) set.
@@ -57,17 +59,28 @@ fills them into sign-in pages.
 | `storage` | Keeps the extension's local key in session storage, in memory only, while it is unlocked. |
 | Host permissions (optional) | Asked for only when the person turns on "Fill codes into sites". The content script looks for one-time-code fields to put the CometOTP button in them, and fills the code the person chooses. It reads nothing else from pages and sends nothing from them. |
 
-**Remote code:** No. All JavaScript and WebAssembly is in the package.
+**Remote code:** No. All JavaScript and WebAssembly is in the package. Usage statistics are sent
+as plain requests (Google Analytics' Measurement Protocol), not with Google's tag.
 
-**Data usage:** Authentication information. The extension keeps an encrypted copy of the
-two-factor secrets the person's phone shares, to show their codes and fill them in. It receives
-them encrypted from the relay and sends them nowhere. Then the three certifications: not sold or
-transferred to third parties, not used for purposes unrelated to the single purpose, and not used
-to determine creditworthiness or for lending.
+**Data usage:**
+
+- Authentication information. The extension keeps an encrypted copy of the two-factor secrets the
+  person's phone shares, to show their codes and fill them in. It receives them encrypted from the
+  relay and sends them nowhere.
+- User activity, only if the person turns on Usage statistics in the settings (off unless they
+  do): which of the extension's own features they use (opening the popup, copying or filling a
+  code, pairing, disconnecting), with the extension's version, the browser's family and a random
+  ID, sent to Google Analytics. Nothing from web pages, and none of their codes, services or sites.
+
+Then the three certifications: not sold or transferred to third parties, not used for purposes
+unrelated to the single purpose, and not used to determine creditworthiness or for lending.
 
 ## Firefox Add-ons
 
-**Data collection:** none, as the manifest declares (`data_collection_permissions`).
+**Data collection:** none required; technical and interaction data optional, for the usage
+statistics the person can turn on in the settings, as the manifest declares
+(`data_collection_permissions`). The extension sends them only when both its own setting (off by
+default) and Firefox's switch are on.
 
 **Source code:** yes, as TypeScript is compiled to JavaScript. Upload
 `cometotp-browser-source-X.Y.Z.zip` from the release.
@@ -83,7 +96,7 @@ The Firefox package is then extension/dist/cometotp-firefox-X.Y.Z.zip, the same 
 
 Trying it: set a password in the popup. The settings page opens from the popup's Settings. Pairing needs CometOTP for Android with a lock set: the pairing page shows a QR code that the app scans. "Fill codes into sites" in the settings asks for access to sites; the content script only looks for one-time-code fields.
 
-The extension talks only to the relay at https://relay.gigabytedevelopers.com (or one the person chooses), which passes the encrypted copy between the phone and the browser. Its API is in docs/protocol.md.
+The extension talks to the relay at https://relay.gigabytedevelopers.com (or one the person chooses), which passes the encrypted copy between the phone and the browser. Its API is in docs/protocol.md. Only if the person turns on "Usage statistics" in the settings (off by default) does it also tell Google Analytics, through its Measurement Protocol at https://region1.google-analytics.com, which feature was used (src/usage/), with the version, the browser's family and a random id. It checks the technicalAndInteraction consent before each message.
 ```
 
 ## Microsoft Edge Add-ons

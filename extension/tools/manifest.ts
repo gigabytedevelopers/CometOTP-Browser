@@ -86,8 +86,10 @@ export function manifest(target: Target, version: string): Record<string, unknow
         id: GECKO_ID,
         // 140 is the extended support release that knows data_collection_permissions.
         strict_min_version: '140.0',
-        // Nothing leaves the browser except to the relay, which is how the extension works.
-        data_collection_permissions: { required: ['none'] },
+        // Nothing is needed beyond the relay, which is how the extension works. Usage statistics
+        // are optional, and off until the person turns them on (src/usage/usage.ts); Firefox's
+        // switch for them must be on too. Its schema wants something required, so "none".
+        data_collection_permissions: { required: ['none'], optional: ['technicalAndInteraction'] },
       },
     },
   };

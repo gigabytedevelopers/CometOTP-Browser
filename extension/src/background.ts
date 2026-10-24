@@ -5,14 +5,21 @@
 // at start-up and every 15 minutes (protocol §7.2). Once the person allows access to sites, it
 // runs the content script that puts a CometOTP button in code fields, and serves its menus. It also
 // answers the popup's ping with its version, which shows that the two can talk
-// (tools/load-test.ts relies on it).
+// (tools/load-test.ts relies on it). If the person turned usage statistics on, it sends them,
+// for its pages and for the codes it fills.
 import { updateContentScript } from './fill/access.js';
 import { chooseService, claimMenu, listMenu, mayFill, openMenu, passOn } from './fill/menus.js';
 import { isFillChoose, isFillClaim, isFillClose, isFillHere, isFillList, isFillOpen, isFillSize } from './fill/messages.js';
 import { lock } from './lock/lock.js';
-import { isPing, type Pong } from './messages.js';
+import { isPing, isUsage, type Pong } from './messages.js';
 import { autoLockMinutes } from './settings/prefs.js';
 import { sync } from './sync/sync.js';
+import { sendUsage } from './usage/usage.js';
+
+/** Whether a message comes from one of the extension's own pages, not a content script in a site. */
+function fromExtension(sender: chrome.runtime.MessageSender): boolean {
+  return sender.id === chrome.runtime.id && (sender.url?.startsWith(chrome.runtime.getURL('')) ?? false);
+}
 
 // The time without input before locking is a setting (15 minutes unless chosen), set again each
 // time the background starts; the settings page sets it at once when it changes.
@@ -58,10 +65,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     void listMenu(message.menu, sender).then(sendResponse);
     return true;
   } else if (isFillChoose(message)) {
-    void chooseService(message.menu, message.service, sender).then(sendResponse, () => sendResponse(false));
+    void chooseService(message.menu, message.service, sender).then(
+      (filled) => {
+        sendResponse(filled);
+        if (filled) void sendUsage('code_filled');
+      },
+      () => sendResponse(false),
+    );
     return true;
   } else if (isFillSize(message) || isFillClose(message)) {
     void passOn(message, sender);
+  } else if (isUsage(message) && fromExtension(sender)) {
+    void sendUsage(message.event);
   }
   return undefined;
 });

@@ -4,6 +4,7 @@
 import { generateCode, secondsLeft, type Service } from '@cometotp/protocol';
 
 import { MAX_SKEW_MS, services, syncStatus, type SyncWarning } from '../sync/sync.js';
+import { report } from '../usage/usage.js';
 import { badgeColor, groupCode, initials, matches, skewText, updatedText } from './format.js';
 
 function element<T extends HTMLElement>(id: string): T {
@@ -87,6 +88,7 @@ function row(service: Service): Row {
 async function copy(entry: Row): Promise<void> {
   if (!entry.value) return;
   await navigator.clipboard.writeText(entry.value);
+  report('code_copied');
   entry.button.classList.add('copied');
   entry.code.textContent = 'Copied';
   copied.textContent = `${entry.service.issuer || entry.service.label} code copied`;

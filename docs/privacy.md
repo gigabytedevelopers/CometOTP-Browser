@@ -1,6 +1,6 @@
 # CometOTP browser extension: privacy policy
 
-Last updated: 15 October 2026
+Last updated: 24 October 2026
 
 This policy covers the CometOTP browser extension and the relay it syncs through. Gigabyte
 Developers makes both, and runs the official relay at `relay.gigabytedevelopers.com`. The CometOTP
@@ -8,7 +8,9 @@ app on your phone has its own privacy policy, which covers what the app keeps.
 
 In short: your codes' secrets are encrypted on your phone with a key that only your phone and your
 browser have. The relay passes the encrypted copy along and cannot read it. The extension has no
-accounts, no analytics, no ads and no tracking, and nothing it handles is sold or shared.
+accounts and no ads, and nothing it handles is sold or shared. It sends usage statistics only if
+you turn them on in its settings, and they never include your codes, your services or the sites
+you use.
 
 ## What the extension keeps on your computer
 
@@ -27,6 +29,8 @@ In the browser's storage for the extension:
   service first.
 - **Settings:** how soon the extension locks, the name your phone shows for this browser, the relay
   chosen for pairing, and when it last checked for a new copy.
+- **Usage statistics, only if you turned them on:** the random ID made for them. While the browser
+  runs, it also holds in memory when the current visit began.
 
 While the extension is unlocked, the local key is held in memory only. Locking, the computer
 locking, a time without use, or quitting the browser removes it.
@@ -71,6 +75,43 @@ anywhere. The list of services opens in a part of the page the site cannot read.
 only the code you choose to fill into it, as if you had typed it. Turning filling off takes the
 access back.
 
+## Usage statistics (only if you turn them on)
+
+Usage statistics are off unless you turn them on, under **Usage statistics** in the extension's
+settings. In Firefox, its own setting for technical and interaction data must be on too; Firefox
+asks you if it is not. They help us see how many people use the extension and which parts, to
+decide what to work on.
+
+When they are on, the extension sends Google Analytics a short message each time you:
+
+- open its popup,
+- copy a code, or fill one into a site,
+- pair this browser with your phone, or disconnect it.
+
+Each message holds only what happened, the extension's version, whether your browser is Firefox
+or Chrome-like, a random ID made when you turned the statistics on, and a number for the current
+visit. They never include your codes or their secrets, your services' names, your phone's name,
+your password, the relay you use, the sites you visit or fill codes into, or anything from web
+pages.
+
+- **Who receives them:** Google, which runs Google Analytics for us as our processor under the
+  Google Ads Data Processing Terms. The messages go to Google's endpoint that collects in the
+  European Union, `region1.google-analytics.com`; Google may process them elsewhere, including in
+  the United States, under those terms.
+- **Your IP address:** like any server, Google sees the address the message comes from. Google
+  says that Google Analytics does not log or store IP addresses. We turned off collecting your
+  city and details about your device.
+- **No ads:** every message marks consent for advertising as denied. We turned off ads
+  personalization and Google signals, and link Google Analytics to no advertising account.
+- **How long:** Google Analytics deletes what is tied to the random ID after 2 months. Totals
+  that cannot be traced to anyone, such as how many people used the extension in a week, are kept.
+- **Withdrawing:** turn usage statistics off in the extension's settings. The extension stops
+  sending at once and deletes the random ID. Nothing we hold links that ID to you, so we cannot
+  find your statistics to delete them sooner; they are deleted after 2 months.
+
+If you are in the European Economic Area, the United Kingdom or Switzerland, we rely on your
+consent, which you give by turning usage statistics on and can withdraw at any time as above.
+
 ## Passkeys
 
 If you unlock with a passkey, your browser and your authenticator (such as Touch ID, Windows Hello,
@@ -79,6 +120,7 @@ sent anywhere.
 
 ## Removing your data
 
+- **Turning usage statistics off** stops them and deletes their random ID from your browser.
 - **Disconnect** in the extension's settings deletes the vault on the relay and everything the
   pairing kept in the browser.
 - **Remove** in CometOTP on your phone deletes the vault on the relay; the extension then deletes

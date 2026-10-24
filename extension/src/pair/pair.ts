@@ -8,6 +8,7 @@ import { isRelay, relayUrl } from '../sync/relay.js';
 import { chooseRelay, chosenRelay, pairingRecord, storePairing, vaultSecret } from '../sync/store.js';
 import { services, sync } from '../sync/sync.js';
 import { pairingName } from '../settings/prefs.js';
+import { report } from '../usage/usage.js';
 import { BrowserPairing, type PairingFailure, type PairingStep } from './pairing.js';
 import { drawQr } from './qr.js';
 
@@ -119,6 +120,7 @@ async function start(): Promise<void> {
       const key = await localKey();
       if (!key) throw new Error('Locked');
       await storePairing(paired, key);
+      report('browser_paired');
     },
     async download() {
       await sync();
