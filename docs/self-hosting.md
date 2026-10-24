@@ -30,11 +30,11 @@ dig +short relay.example.com
 ## 2. Get the files
 
 On the server, in a folder of its own, download the Compose file, the Caddyfile and the example
-settings from the release you want. Use the same version as the image; `0.1.0` here:
+settings from the release you want. Use the same version as the image; `0.1.1` here:
 
 ```bash
 mkdir cometotp-relay && cd cometotp-relay
-base=https://raw.githubusercontent.com/gigabytedevelopers/CometOTP-Browser/relay-v0.1.0/relay/deploy
+base=https://raw.githubusercontent.com/gigabytedevelopers/CometOTP-Browser/relay-v0.1.1/relay/deploy
 curl -fsSLO "$base/compose.yaml"
 curl -fsSLO "$base/Caddyfile"
 curl -fsSL -o .env "$base/.env.example"
