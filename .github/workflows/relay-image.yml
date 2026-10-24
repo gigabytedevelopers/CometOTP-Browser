@@ -79,7 +79,10 @@ jobs:
       - name: Pair and sync through it
         env:
           RELAY_URL: https://localhost
-        run: NODE_EXTRA_CA_CERTS="$RUNNER_TEMP/caddy-root.crt" node --test relay/dist/test/deployed.test.js
+        run: |
+          # The image says its version, from relay/package.json, as a deployment checks it.
+          export RELAY_VERSION="$(node -p 'require("./relay/package.json").version')"
+          NODE_EXTRA_CA_CERTS="$RUNNER_TEMP/caddy-root.crt" node --test relay/dist/test/deployed.test.js
 
       - name: Check it runs unprivileged and read-only, and keeps its data across a restart
         working-directory: relay/deploy

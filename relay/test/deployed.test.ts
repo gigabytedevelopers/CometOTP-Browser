@@ -72,6 +72,8 @@ describe('a deployed relay', { skip: RELAY_URL ? false : 'RELAY_URL is not set' 
     const r = await call('GET', '/v1/');
     assert.equal(r.status, 200);
     assert.deepEqual(r.json, { protocol: 1 });
+    // After a deployment, RELAY_VERSION says which version should be running.
+    if (process.env.RELAY_VERSION) assert.equal(r.headers.get('x-relay-version'), process.env.RELAY_VERSION);
     assert.equal(r.headers.get('access-control-allow-origin'), '*');
     assert.equal(r.headers.get('access-control-expose-headers'), 'Date, ETag, Retry-After');
     assert.equal(r.headers.get('cache-control'), 'no-store');

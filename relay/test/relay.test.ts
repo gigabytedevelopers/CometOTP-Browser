@@ -28,6 +28,7 @@ const config: RelayConfig = {
   trustProxy: true,
   longPollMs: 300,
   limits: { ...DEFAULT_LIMITS },
+  version: '1.2.3',
 };
 
 function start(limits = DEFAULT_LIMITS): Promise<void> {
@@ -92,10 +93,11 @@ describe('relay', () => {
   });
 
   describe('general', () => {
-    it('says which protocol it speaks, with CORS and no caching', async () => {
+    it('says which protocol it speaks, and its version, with CORS and no caching', async () => {
       const r = await call('GET', '/v1/');
       assert.equal(r.status, 200);
       assert.deepEqual(r.json, { protocol: 1 });
+      assert.equal(r.headers.get('x-relay-version'), '1.2.3');
       assert.equal(r.headers.get('access-control-allow-origin'), '*');
       assert.equal(r.headers.get('access-control-expose-headers'), 'Date, ETag, Retry-After');
       assert.equal(r.headers.get('cache-control'), 'no-store');

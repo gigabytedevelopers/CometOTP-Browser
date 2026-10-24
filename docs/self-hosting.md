@@ -87,6 +87,11 @@ docker compose up -d
 
 Releases are listed on the
 [package page](https://github.com/gigabytedevelopers/CometOTP-Browser/pkgs/container/cometotp-relay).
+The relay says which version it runs in the `X-Relay-Version` header of `GET /v1/`:
+
+```bash
+curl -sI https://relay.example.com/v1/ | grep -i x-relay-version
+```
 
 ## Backups
 

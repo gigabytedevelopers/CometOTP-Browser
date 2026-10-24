@@ -315,7 +315,9 @@ its clock and the relay's `Date` header differ by more than 30 seconds.
 
 - Paths are relative to the relay's base URL `r`. Everything is served over HTTPS, except for
   local testing.
-- `GET /v1/` answers `200 {"protocol": 1}`, so a self-hosted relay's URL can be checked.
+- `GET /v1/` answers `200 {"protocol": 1}`, so a self-hosted relay's URL can be checked. The
+  relay's version comes with it in `X-Relay-Version`, for whoever runs the relay; clients do not
+  use it, and older relays do not send it.
 - Every response carries `Cache-Control: no-store`.
 - **CORS:** every response, and every `OPTIONS` preflight, carries
   `Access-Control-Allow-Origin: *`,

@@ -13,6 +13,11 @@ export interface RelayConfig {
   /** How long a pairing channel GET waits for a message before answering with none. */
   longPollMs: number;
   limits: RateLimits;
+  /**
+   * The relay's version, from relay/package.json, which GET /v1/ sends as X-Relay-Version so that
+   * a deployment can check which one is running. Without it, nothing is sent.
+   */
+  version?: string;
 }
 
 /** Requests allowed per hour (protocol §6.1). */

@@ -352,7 +352,9 @@ export function createRelay(config: RelayConfig, store: RelayStore, now: () => n
     const method = req.method ?? 'GET';
     if (parts[0] !== 'v1') throw notFound();
 
-    if (parts.length === 1 && method === 'GET') return send(res, 200, { protocol: 1 });
+    if (parts.length === 1 && method === 'GET') {
+      return send(res, 200, { protocol: 1 }, config.version ? { 'X-Relay-Version': config.version } : {});
+    }
 
     if (parts[1] === 'pair' && parts.length >= 3) {
       const id = checkId(parts[2], 16);
