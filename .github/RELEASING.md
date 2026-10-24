@@ -107,6 +107,37 @@ version is not the one in `relay/package.json`. It then builds the image nativel
 The first time, the package is private: in its settings on GitHub, change its visibility to public
 so that anyone can pull it, and check that it is linked to this repository.
 
+### Deploying to the official relay
+
+Then the workflow deploys the release to the official relay, `https://relay.gigabytedevelopers.com`,
+a service in Coolify (`.github/scripts/deploy_relay.py`):
+
+1. It gives the service `relay/deploy/coolify.yaml` with the image just published, pinned to its
+   digest, and a description naming the release and its commit.
+2. It has Coolify pull the image and restart the relay, as **Pull latest and restart** does.
+3. It waits up to ten minutes for the relay to say it runs the new version (`X-Relay-Version` on
+   `GET /v1/`), then runs the deployed tests against it (`relay/test/deployed.test.ts`).
+
+So change the official relay's service in `relay/deploy/coolify.yaml`: an edit made in Coolify is
+undone by the next release. If the deployment fails, the image is published all the same: fix what
+the job's log says, then re-run the failed job, or deploy the digest by hand in Coolify.
+
+It needs, once, a **`relay-production`** environment in the repository's settings (Settings →
+Environments):
+
+| Kind | Name | Value |
+| --- | --- | --- |
+| Secret | `COOLIFY_TOKEN` | A Coolify API token with the **write** and **deploy** permissions only |
+| Variable | `COOLIFY_URL` | Coolify's address, such as `https://coolify.example.com` |
+| Variable | `COOLIFY_SERVICE_UUID` | The relay service's UUID, the last part of its address in Coolify |
+| Variable | `RELAY_URL` | `https://relay.gigabytedevelopers.com` |
+
+Limit the environment's deployments to tags matching `relay-v*`, so no branch can use the token.
+In Coolify, the API must be on (Settings → Advanced → API Access), and its allowed IPs must let in
+GitHub's runners (empty allows any). Create the token in Keys & Tokens → API tokens while in the
+team that owns the service, as one of its admins; Coolify refuses tokens with write or deploy from
+members.
+
 ## Releasing the extension
 
 The extension's packages are built by `extension-release.yml` when a signed tag

@@ -1,0 +1,26 @@
+# The official relay, https://relay.gigabytedevelopers.com, as a service in Coolify, whose proxy
+# terminates HTTPS in front of it. relay-release.yml gives Coolify this file with each release,
+# with the image placeholder below replaced by the release's image pinned to its digest
+# (.github/scripts/deploy_relay.py), so change the service here, not in Coolify, where the next
+# release would undo it.
+services:
+  relay:
+    image: ${RELAY_IMAGE}
+    restart: unless-stopped
+    environment:
+      TRUST_PROXY: "1"
+      DATABASE_PATH: /data/relay.sqlite
+    expose:
+      - "8080"
+    volumes:
+      - relay-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+volumes:
+  relay-data:

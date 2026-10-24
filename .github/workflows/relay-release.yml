@@ -4,6 +4,8 @@ name: Relay release
 # pushed (.github/RELEASING.md). The tag must be signed, as GitHub verifies it, and match the
 # relay's version in relay/package.json. Each architecture is built natively on its own runner,
 # so nothing is emulated and no third-party action runs; the two are then joined under one tag.
+# Then it deploys that image, by digest, to the official relay on Coolify, waits until the relay
+# says it runs this version, and runs the deployed tests against it.
 on:
   push:
     tags: ['relay-v*']
@@ -126,10 +128,13 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      image: ${{ steps.join.outputs.image }}
     env:
       VERSION: ${{ needs.check.outputs.version }}
     steps:
       - name: Join both architectures under the version, its minor version and latest
+        id: join
         env:
           TOKEN: ${{ github.token }}
           ACTOR: ${{ github.actor }}
@@ -149,3 +154,68 @@ jobs:
             sleep $((attempt * 10))
           done
           docker buildx imagetools inspect "$IMAGE:$VERSION"
+          digest=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Manifest}}' | jq -r .digest)
+          if ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Could not read the digest of $IMAGE:$VERSION"
+            exit 1
+          fi
+          echo "image=$IMAGE:$VERSION@$digest" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Deploy to the official relay
+    needs: [check, publish]
+    if: github.repository == 'gigabytedevelopers/CometOTP-Browser'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # The environment holds Coolify's token and addresses, and only relay-v* tags may use it
+    # (.github/RELEASING.md). One deployment at a time, never cancelled half-way.
+    environment:
+      name: relay-production
+      url: ${{ vars.RELAY_URL }}
+    concurrency:
+      group: relay-production
+      cancel-in-progress: false
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      RELAY_URL: ${{ vars.RELAY_URL }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      # The check comes from the default branch, so the commit being checked cannot change it.
+      - name: Fetch the security check from the default branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .security-check
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+
+      - name: Reject incident indicators before running repository code
+        run: |
+          mv .security-check/.github/scripts/check_repository_security.py "$RUNNER_TEMP/"
+          rm -rf .security-check
+          python3 -I "$RUNNER_TEMP/check_repository_security.py"
+
+      # Only this step sees the token. Coolify gets relay/deploy/coolify.yaml with the image just
+      # published, pulls it and restarts the relay; the step ends once the relay says it runs it.
+      - name: Deploy the image and wait until the relay runs it
+        env:
+          COOLIFY_URL: ${{ vars.COOLIFY_URL }}
+          COOLIFY_SERVICE_UUID: ${{ vars.COOLIFY_SERVICE_UUID }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          IMAGE: ${{ needs.publish.outputs.image }}
+          COMMIT: ${{ github.sha }}
+        run: python3 -I .github/scripts/deploy_relay.py
+
+      - name: Install the locked dependencies without install scripts
+        run: npm ci --ignore-scripts
+
+      - name: Test the deployed relay
+        env:
+          RELAY_VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          npm run build --workspace @cometotp/protocol
+          npm run build --workspace @cometotp/relay
+          node --test relay/dist/test/deployed.test.js

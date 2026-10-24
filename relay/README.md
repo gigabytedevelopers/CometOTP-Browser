@@ -74,5 +74,10 @@ seconds. It runs only when `RELAY_URL` is set:
 RELAY_URL=https://relay.example.com node --test relay/dist/test/deployed.test.js
 ```
 
+With `RELAY_VERSION` set too, they also check that the relay says it runs that version
+(`X-Relay-Version`).
+
 CI builds the image on every pull request, starts it with `deploy/compose.yaml` as the
-self-hosting guide does, and runs these tests through Caddy.
+self-hosting guide does, and runs these tests through Caddy. Each release is deployed to the
+official relay with `deploy/coolify.yaml` and tested there the same way
+([.github/RELEASING.md](../.github/RELEASING.md)).
