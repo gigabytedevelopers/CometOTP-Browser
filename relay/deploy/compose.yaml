@@ -8,7 +8,7 @@ name: cometotp-relay
 
 services:
   relay:
-    image: ${RELAY_IMAGE:-ghcr.io/gigabytedevelopers/cometotp-relay:0.1.0}
+    image: ${RELAY_IMAGE:-ghcr.io/gigabytedevelopers/cometotp-relay:0.1.1}
     restart: unless-stopped
     environment:
       # Caddy sets X-Forwarded-For to the client's address; the relay uses it for rate limits only.
