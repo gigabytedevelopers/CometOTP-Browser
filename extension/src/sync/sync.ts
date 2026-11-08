@@ -97,6 +97,7 @@ export async function sync(now = Date.now()): Promise<void> {
     await putRecord(NOTICE, 'disconnected');
     return;
   }
+  if (result.kind === 'bad') status.warning = 'bad-vault';
   if (result.kind === 'vault') {
     let version = 0;
     try {

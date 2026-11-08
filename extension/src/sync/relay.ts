@@ -1,6 +1,16 @@
 // The relay's HTTP API as the browser uses it (protocol §6). The relay allows any origin, so the
 // extension needs no host permission to reach it, the official one or one of your own.
-import { checkRelayUrl, fromBase64Url, toBase64Url, type Bytes } from '@cometotp/protocol';
+import {
+  BLOB_OVERHEAD,
+  MAX_BLOB_LENGTH,
+  MAX_BLOCKS,
+  PAD_BLOCK,
+  checkRelayUrl,
+  concat,
+  fromBase64Url,
+  toBase64Url,
+  type Bytes,
+} from '@cometotp/protocol';
 
 /** The relay gigabytedevelopers runs, used unless the person picks their own. */
 export const OFFICIAL_RELAY = 'https://relay.gigabytedevelopers.com';
@@ -106,6 +116,8 @@ export async function deleteChannel(relay: string, channel: Bytes, token: string
 
 export type Download = (
   | { kind: 'vault'; blob: Bytes; etag: string | null }
+  /** Not a vault: larger than one can be, or of a length none has. It was not kept. */
+  | { kind: 'bad' }
   | { kind: 'unchanged' }
   | { kind: 'empty' }
   | { kind: 'gone' }
@@ -113,6 +125,33 @@ export type Download = (
   /** The relay's clock, from its Date header, to compare codes' clock with (protocol §5). */
   date: number | null;
 };
+
+/**
+ * The body of a vault download, or null when it cannot be a vault: larger than one can be, as its
+ * Content-Length says or as reading finds, which stops there; or not 40 + 4096 × k bytes long
+ * (protocol §4.2). So a relay cannot fill memory or the disk, even while the extension is locked.
+ */
+async function readBlob(response: Response): Promise<Bytes | null> {
+  if (Number(response.headers.get('Content-Length')) > MAX_BLOB_LENGTH) {
+    await response.body?.cancel();
+    return null;
+  }
+  const chunks: Bytes[] = [];
+  let length = 0;
+  const reader = response.body?.getReader();
+  while (reader) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    length += value.length;
+    if (length > MAX_BLOB_LENGTH) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const blocks = (length - BLOB_OVERHEAD) / PAD_BLOCK;
+  return Number.isInteger(blocks) && blocks >= 1 && blocks <= MAX_BLOCKS ? concat(...chunks) : null;
+}
 
 /** Downloads the vault with the read token; "unchanged" when it is still version `have`. */
 export async function download(relay: string, vault: string, readToken: string, have?: number): Promise<Download> {
@@ -123,7 +162,8 @@ export async function download(relay: string, vault: string, readToken: string, 
   const header = response.headers.get('Date');
   const date = header && Number.isFinite(Date.parse(header)) ? Date.parse(header) : null;
   if (response.status === 200) {
-    return { kind: 'vault', blob: new Uint8Array(await response.arrayBuffer()), etag: response.headers.get('ETag'), date };
+    const blob = await readBlob(response);
+    return blob ? { kind: 'vault', blob, etag: response.headers.get('ETag'), date } : { kind: 'bad', date };
   }
   if (response.status === 304) return { kind: 'unchanged', date };
   if (response.status === 410) return { kind: 'gone', date };

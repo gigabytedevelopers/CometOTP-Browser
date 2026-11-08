@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { beforeEach, describe, it } from 'node:test';
 
-import { blobVersion, buildPayload, randomBytes, sealVault, toBase64Url, type Bytes, type Payload } from '@cometotp/protocol';
+import { MAX_BLOB_LENGTH, PAD_BLOCK, blobVersion, buildPayload, concat, randomBytes, sealVault, toBase64Url, type Bytes, type Payload } from '@cometotp/protocol';
 
 import { clearSessionKey, getRecord, putRecord, setSessionKey } from '../src/lock/storage.js';
 import { pairingRecord, storePairing } from '../src/sync/store.js';
@@ -18,6 +18,8 @@ class Relay {
   /** Answered instead of the vault, such as 401 or 410. */
   status: { code: number; error: string } | null = null;
   reachable = true;
+  /** Answered in place of the vault, for downloads that are not one. */
+  download: (() => Response) | null = null;
   /** The version each download said it had, from If-None-Match. */
   had: (string | undefined)[] = [];
 
@@ -38,6 +40,7 @@ class Relay {
       this.blob = null;
       return new Response(null, { status: 204, headers: date });
     }
+    if (this.download) return this.download();
     if (!this.blob) return error(404, 'empty');
     const etag = `"${blobVersion(this.blob)}"`;
     if (headers['If-None-Match'] === etag) return new Response(null, { status: 304, headers: { ...date, ETag: etag } });
@@ -193,6 +196,45 @@ describe('sync', () => {
     await sync();
     assert.equal((await syncStatus()).warning, null);
     assert.deepEqual(await shown(), ['Version 1']);
+  });
+
+  it('keeps nothing larger than a vault can be, or of a length no vault has, and keeps the copy', async () => {
+    relay.blob = await vault(1);
+    await sync();
+    const real = await vault(2);
+    let read = 0;
+    /** A body that never ends, as a relay could send, counting what was read of it. */
+    const endless = () =>
+      new ReadableStream<Uint8Array>(
+        {
+          pull(controller) {
+            read += 65536;
+            controller.enqueue(new Uint8Array(65536));
+          },
+        },
+        { highWaterMark: 0 },
+      );
+    const answers: Record<string, () => Response> = {
+      'a body over the limit': () => new Response(new Uint8Array(MAX_BLOB_LENGTH + PAD_BLOCK)),
+      'a vault with a byte more': () => new Response(concat(real, new Uint8Array(1))),
+      'a vault cut short': () => new Response(real.subarray(0, real.length - 1)),
+      'a body that never ends': () => new Response(endless()),
+      'a Content-Length over the limit': () => new Response(endless(), { headers: { 'Content-Length': String(MAX_BLOB_LENGTH + 1) } }),
+    };
+    for (const [what, answer] of Object.entries(answers)) {
+      read = 0;
+      relay.download = answer;
+      await sync();
+      assert.equal((await syncStatus()).warning, 'bad-vault', what);
+      assert.equal(await getRecord('vault-pending'), undefined, what);
+      assert.deepEqual(await shown(), ['Version 1'], what);
+      assert.ok(read <= MAX_BLOB_LENGTH + 2 * 65536, `${what}: read ${read} bytes`);
+    }
+    assert.equal(read, 0, 'A Content-Length over the limit was read');
+    relay.download = null;
+    relay.blob = real;
+    await sync();
+    assert.deepEqual(await shown(), ['Version 2']);
   });
 
   it('disconnects, deleting the vault on the relay, also when the relay no longer knows the browser', async () => {
