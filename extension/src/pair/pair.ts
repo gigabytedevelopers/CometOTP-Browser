@@ -5,7 +5,7 @@
 import { localKey, state } from '../lock/lock.js';
 import * as relayApi from '../sync/relay.js';
 import { isRelay, relayUrl } from '../sync/relay.js';
-import { chooseRelay, chosenRelay, pairingRecord, storePairing, vaultSecret } from '../sync/store.js';
+import { chooseRelay, chosenRelay, forgetPairing, pairingRecord, storePairing, vaultSecret } from '../sync/store.js';
 import { services, sync } from '../sync/sync.js';
 import { pairingName } from '../settings/prefs.js';
 import { report } from '../usage/usage.js';
@@ -78,6 +78,7 @@ function onStep(step: PairingStep): void {
       show('finishing');
       break;
     case 'done': {
+      report('browser_paired');
       element('done-title').textContent = `Paired with ${step.phone}`;
       const count = step.services;
       element('done-message').textContent =
@@ -120,8 +121,8 @@ async function start(): Promise<void> {
       const key = await localKey();
       if (!key) throw new Error('Locked');
       await storePairing(paired, key);
-      report('browser_paired');
     },
+    forget: forgetPairing,
     async download() {
       await sync();
       return (await services())?.payload.services.length ?? null;

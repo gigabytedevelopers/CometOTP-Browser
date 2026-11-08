@@ -53,6 +53,9 @@ class World implements PairingRelay {
   stored: Paired[] = [];
   received: PairingMessage[] = [];
   unreachable = false;
+  /** How many times the relay fails to pass on the browser's done, as if unreachable. */
+  failDone = 0;
+  forgotten = 0;
   /** The phone scanning the latest code; polls wait for it, as a real relay's long poll would. */
   private scanning: Promise<void> = Promise.resolve();
 
@@ -81,8 +84,12 @@ class World implements PairingRelay {
   async send(_relay: string, id: Bytes, token: string, frame: Bytes): Promise<void> {
     const channel = this.channel(id);
     assert.equal(token, channel.token);
+    const message = await openPairingFrame(channel.keys!, id, TO_PHONE, channel.toPhone.length + 1, frame);
+    if (message.t === 'done' && this.failDone > 0) {
+      this.failDone--;
+      throw new RelayError(0, 'unreachable');
+    }
     channel.toPhone.push(frame);
-    const message = await openPairingFrame(channel.keys!, id, TO_PHONE, channel.toPhone.length, frame);
     this.received.push(message);
     if (message.t === 'confirm') {
       if ((this.phone.onConfirm ?? 'vault') === 'vault') await this.phoneSends(channel, id, this.vault());
@@ -122,6 +129,7 @@ class World implements PairingRelay {
       browserName: 'Chrome on macOS',
       api: this,
       store: store ?? (async (paired) => void this.stored.push(paired)),
+      forget: async () => void this.forgotten++,
       download: async () => 3,
       onStep: (step) => {
         this.steps.push(step);
@@ -234,6 +242,25 @@ describe('pairing, the browser side', () => {
       })
       .run();
     assert.deepEqual(world.last(), { step: 'failed', reason: 'not-stored' });
+    assert.deepEqual(world.received.map((m) => m.t), ['confirm', 'cancel']);
+  });
+
+  it('says done again when the relay fails for a moment', async () => {
+    const world = new World();
+    world.failDone = 2;
+    await world.pairing().run();
+    assert.deepEqual(world.last(), { step: 'done', phone: 'Pixel 7', services: 3 });
+    assert.deepEqual(world.received.map((m) => m.t), ['confirm', 'done']);
+    assert.equal(world.forgotten, 0);
+  });
+
+  it('forgets the vault details when the phone cannot be told it is done, as the phone cancels', async () => {
+    const world = new World();
+    world.failDone = Infinity;
+    await world.pairing().run();
+    assert.deepEqual(world.last(), { step: 'failed', reason: 'unreachable' });
+    assert.equal(world.stored.length, 1);
+    assert.equal(world.forgotten, 1);
     assert.deepEqual(world.received.map((m) => m.t), ['confirm', 'cancel']);
   });
 });

@@ -2,7 +2,8 @@
 // code, and a new one each time the last expires unanswered. Then it checks the phone's hello, and
 // shows the six digits until the person confirms or cancels, while watching for the phone
 // cancelling. Last, it sends the confirm, stores the vault's details, says done, and downloads the
-// vault. Anything that goes wrong ends it with a reason the page can explain.
+// vault. Anything that goes wrong ends it with a reason the page can explain, and with nothing
+// kept: details stored before done could not be said are deleted again, as the phone cancels.
 import {
   CHANNEL_LIFETIME,
   HELLO_WINDOW,
@@ -68,6 +69,8 @@ export interface PairingOptions {
   api: PairingRelay;
   /** Keeps the vault's details; throws if it cannot. */
   store(paired: Paired): Promise<void>;
+  /** Deletes what `store` kept, when the phone could not be told the pairing is done. */
+  forget(): Promise<void>;
   /** Downloads the vault once paired; the number of services in it, or null when not yet. */
   download(): Promise<number | null>;
   onStep(step: PairingStep): void;
@@ -83,6 +86,9 @@ class Stop extends Error {
 
 const isRelayError = (error: unknown, code?: string): error is RelayError =>
   error instanceof RelayError && (code === undefined || error.code === code);
+
+/** How many times done is sent, a second apart, while the relay cannot be reached or fails. */
+const DONE_ATTEMPTS = 3;
 
 export class BrowserPairing {
   private readonly now: () => number;
@@ -202,7 +208,13 @@ export class BrowserPairing {
     } catch {
       throw new Stop('not-stored');
     }
-    await this.post({ t: 'done' });
+    try {
+      await this.sayDone();
+    } catch (error) {
+      // The phone is told the pairing is off instead, so this side keeps nothing either.
+      await this.options.forget().catch(() => undefined);
+      throw error;
+    }
     this.finished = true;
     await this.closeChannel(false);
     this.privateKey = undefined;
@@ -234,6 +246,20 @@ export class BrowserPairing {
       return await openPairingFrame(this.channel!.keys!, this.channel!.id, TO_BROWSER, index, frame);
     } catch {
       throw new Stop('broken');
+    }
+  }
+
+  /** Says done, again while the relay cannot be reached or fails, until the person cancels. */
+  private async sayDone(): Promise<void> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.post({ t: 'done' });
+      } catch (error) {
+        const transient = isRelayError(error) && (error.status === 0 || error.status >= 500);
+        if (!transient || attempt === DONE_ATTEMPTS) throw error;
+      }
+      await this.sleep(1000);
+      if (this.abort.signal.aborted) throw new Stop('cancelled');
     }
   }
 
