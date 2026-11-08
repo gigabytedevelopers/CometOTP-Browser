@@ -85,11 +85,15 @@ const NOT_CODE = new Set([
   'area',
 ]);
 
-/** The words of identifiers and text: "auth-mfa-otpcode", "totpPin", "Enter code". */
+/**
+ * The words of identifiers and text: "auth-mfa-otpcode", "totpPin", "Enter code". Digits after
+ * letters are a word of their own, so "zip1" and "sms2" say zip and sms; "2fa" stays one word.
+ */
 export function words(text: string): string[] {
   return text
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     .toLowerCase()
+    .replace(/([a-z])([0-9])/g, '$1 $2')
     .split(/[^a-z0-9]+/)
     .filter(Boolean);
 }
@@ -135,5 +139,9 @@ export function isCodeGroup(fields: FieldInfo[]): boolean {
   // Steam's codes have five characters; TOTP codes six to eight.
   if (fields.length < 5 || fields.length > 8) return false;
   if (!fields.every((field) => TYPES.has(field.type) && field.maxLength === 1)) return false;
-  return !fields.some((field) => hints(field).some((word) => NOT_CODE.has(word)));
+  // None may say it is something else, as a single field may not: a date of birth's boxes, say.
+  return !fields.some(
+    (field) =>
+      field.autocomplete.split(/\s+/).some((token) => OTHER_AUTOCOMPLETE.test(token)) || hints(field).some((word) => NOT_CODE.has(word)),
+  );
 }

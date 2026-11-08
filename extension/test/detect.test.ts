@@ -16,6 +16,13 @@ describe('words', () => {
     assert.deepEqual(words('idTxtBx_SAOTCC_OTC'), ['id', 'txt', 'bx', 'saotcc', 'otc']);
     assert.deepEqual(words('Enter the 6-digit code'), ['enter', 'the', '6', 'digit', 'code']);
   });
+
+  it('parts digits from the letters before them, but not from those after', () => {
+    assert.deepEqual(words('zip1'), ['zip', '1']);
+    assert.deepEqual(words('smsCode2'), ['sms', 'code', '2']);
+    assert.deepEqual(words('otp_digit_10'), ['otp', 'digit', '10']);
+    assert.deepEqual(words('auth2fa'), ['auth', '2fa']);
+  });
 });
 
 describe('isCodeField', () => {
@@ -53,6 +60,8 @@ describe('isCodeField', () => {
       'a word that only contains "otp"': { name: 'footprint' },
       'a bare code without digits': { name: 'code' },
       'a long field': { name: 'otp', maxLength: 64 },
+      'a card security code numbered as it is on the card': { name: 'cvv2', label: 'Security code', maxLength: 4 },
+      'a code sent by text, numbered': { name: 'sms1', label: 'Code', inputMode: 'numeric', maxLength: 6 },
     };
     for (const [what, info] of Object.entries(others)) assert.ok(!isCodeField(field(info)), what);
   });
@@ -73,5 +82,23 @@ describe('isCodeGroup', () => {
     assert.ok(!isCodeGroup([...Array.from({ length: 5 }, () => box()), box({ maxLength: 2 })]));
     assert.ok(!isCodeGroup(Array.from({ length: 6 }, () => box({ type: 'checkbox' }))));
     assert.ok(!isCodeGroup(Array.from({ length: 6 }, (_, i) => box({ name: `sms_${i}` }))));
+  });
+
+  it('refuses boxes that say they are something else, in their autocomplete or with a number in their name', () => {
+    const groups: Record<string, FieldInfo[]> = {
+      'a date of birth': ['bday-day', 'bday-day', 'bday-month', 'bday-month', 'bday-year', 'bday-year', 'bday-year', 'bday-year'].map((autocomplete) =>
+        box({ autocomplete }),
+      ),
+      'a postal code': Array.from({ length: 5 }, () => box({ autocomplete: 'postal-code' })),
+      'a card number': Array.from({ length: 8 }, () => box({ autocomplete: 'cc-number' })),
+      'a phone number': Array.from({ length: 7 }, () => box({ autocomplete: 'tel-local' })),
+      'one box of a postal code among code boxes': [...Array.from({ length: 5 }, () => box()), box({ autocomplete: 'shipping postal-code' })],
+      'boxes named zip1 to zip5': Array.from({ length: 5 }, (_, i) => box({ name: `zip${i + 1}` })),
+      'boxes named sms1 to sms6': Array.from({ length: 6 }, (_, i) => box({ id: `sms${i + 1}` })),
+    };
+    for (const [what, fields] of Object.entries(groups)) assert.ok(!isCodeGroup(fields), what);
+    // Boxes marked as a code, or numbered without saying anything else, are still a code's.
+    assert.ok(isCodeGroup(Array.from({ length: 6 }, (_, i) => box({ autocomplete: i ? 'off' : 'one-time-code', name: `otp${i + 1}` }))));
+    assert.ok(isCodeGroup(Array.from({ length: 6 }, (_, i) => box({ name: `digit${i + 1}` }))));
   });
 });
