@@ -6,7 +6,16 @@ import { createServer, request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, beforeEach, describe, it } from 'node:test';
 
-import { MAX_BLOB_LENGTH, PAD_BLOCK, buildPayload, fromBase64Url, sealVault, toBase64Url } from '@cometotp/protocol';
+import {
+  MAX_BLOB_LENGTH,
+  PAD_BLOCK,
+  TO_BROWSER,
+  TO_PHONE,
+  buildPayload,
+  fromBase64Url,
+  sealVault,
+  toBase64Url,
+} from '@cometotp/protocol';
 
 import { MAX_FRAME, MAX_MESSAGES, createRelay, type Relay } from '../src/app.js';
 import { DEFAULT_LIMITS, type RelayConfig } from '../src/config.js';
@@ -155,16 +164,16 @@ describe('relay', () => {
   });
 
   describe('pairing channels', () => {
-    async function channel() {
+    async function channel(ip?: string) {
       const id = id16();
-      const r = await call('PUT', `/v1/pair/${id}`);
+      const r = await call('PUT', `/v1/pair/${id}`, { ip });
       assert.equal(r.status, 201);
       return { id, browser: r.json.token as string };
     }
 
-    async function claimed() {
-      const c = await channel();
-      const r = await call('POST', `/v1/pair/${c.id}/to-browser`, { json: frame() });
+    async function claimed(ip?: string) {
+      const c = await channel(ip);
+      const r = await call('POST', `/v1/pair/${c.id}/to-browser`, { ip, json: frame() });
       assert.equal(r.status, 201);
       assert.equal(r.json.seq, 1);
       return { ...c, phone: r.json.token as string };
@@ -267,6 +276,58 @@ describe('relay', () => {
       relay.housekeeping();
       assert.equal((await call('GET', `/v1/pair/${d.id}/to-browser`, { token: d.browser })).status, 404);
       assert.equal((await call('PUT', `/v1/pair/${d.id}`)).status, 201);
+    });
+
+    // The tests below make channels from an address of their own, as those above use up most of
+    // the hour's allowance for the usual one.
+
+    it('refuses a hello for a deleted channel', async () => {
+      const c = await channel('203.0.113.2');
+      assert.equal((await call('DELETE', `/v1/pair/${c.id}`, { token: c.browser })).status, 204);
+      assert.deepEqual((await call('POST', `/v1/pair/${c.id}/to-browser`, { ip: '203.0.113.2', json: frame() })).json, {
+        error: 'expired',
+      });
+    });
+
+    it('refuses a hello whose channel is deleted, runs out of time or is claimed while it arrives', async () => {
+      const ip = '203.0.113.2';
+      const hello = (id: string, meanwhile: () => unknown) =>
+        callInterrupted('POST', `/v1/pair/${id}/to-browser`, { ip, json: frame() }, meanwhile);
+
+      const deleted = await channel(ip);
+      assert.deepEqual(await hello(deleted.id, () => call('DELETE', `/v1/pair/${deleted.id}`, { token: deleted.browser })), {
+        status: 410,
+        json: { error: 'expired' },
+      });
+      assert.equal(store.getChannel(deleted.id)!.phoneHash, null);
+      assert.deepEqual(store.messagesAfter(deleted.id, TO_BROWSER, 0), []);
+
+      const late = await channel(ip);
+      assert.deepEqual(await hello(late.id, () => (clock += 2 * MINUTE)), { status: 410, json: { error: 'expired' } });
+      assert.equal(store.getChannel(late.id)!.phoneHash, null);
+
+      const taken = await channel(ip);
+      assert.deepEqual(await hello(taken.id, () => call('POST', `/v1/pair/${taken.id}/to-browser`, { ip, json: frame() })), {
+        status: 409,
+        json: { error: 'claimed' },
+      });
+    });
+
+    it('refuses a message whose channel is deleted or runs out of time while it arrives', async () => {
+      const ip = '203.0.113.2';
+      const c = await claimed(ip);
+      const deleted = await callInterrupted('POST', `/v1/pair/${c.id}/to-browser`, { token: c.phone, json: frame() }, () =>
+        call('DELETE', `/v1/pair/${c.id}`, { token: c.browser }),
+      );
+      assert.deepEqual(deleted, { status: 410, json: { error: 'expired' } });
+      assert.deepEqual(store.messagesAfter(c.id, TO_BROWSER, 1), []);
+
+      const d = await claimed(ip);
+      const late = await callInterrupted('POST', `/v1/pair/${d.id}/to-phone`, { token: d.browser, json: frame() }, () => {
+        clock += 10 * MINUTE;
+      });
+      assert.deepEqual(late, { status: 410, json: { error: 'expired' } });
+      assert.deepEqual(store.messagesAfter(d.id, TO_PHONE, 0), []);
     });
 
     it('ends a waiting reader when the channel is deleted', async () => {

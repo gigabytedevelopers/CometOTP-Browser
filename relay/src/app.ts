@@ -51,6 +51,7 @@ class HttpError extends Error {
 const badRequest = () => new HttpError(400, 'bad_request');
 const unauthorized = () => new HttpError(401, 'unauthorized');
 const notFound = () => new HttpError(404, 'not_found');
+const expired = () => new HttpError(410, 'expired');
 const gone = () => new HttpError(410, 'gone');
 
 function send(res: ServerResponse, status: number, body?: unknown, headers: Record<string, string> = {}): void {
@@ -194,8 +195,23 @@ export function createRelay(config: RelayConfig, store: RelayStore, now: () => n
   function openChannel(id: string): Channel {
     const channel = store.getChannel(id);
     if (!channel) throw notFound();
-    if (channel.deleted || now() - channel.createdAt >= CHANNEL_LIFETIME_MS) throw new HttpError(410, 'expired');
+    if (channel.deleted || now() - channel.createdAt >= CHANNEL_LIFETIME_MS) throw expired();
     return channel;
+  }
+
+  /** Throws unless a hello may claim the open channel now: 409 if claimed, 410 once the window is over. */
+  function checkHello(channel: Channel): void {
+    if (channel.phoneHash) throw new HttpError(409, 'claimed');
+    if (now() - channel.createdAt >= HELLO_WINDOW_MS) throw expired();
+  }
+
+  /** Adds a message to a channel that was open before the frame arrived, and may have closed since. */
+  function addMessage(id: string, direction: number, frame: Uint8Array): number {
+    const seq = store.addMessage(id, direction, frame, MAX_MESSAGES, now() - CHANNEL_LIFETIME_MS);
+    if (seq === 'closed') throw store.getChannel(id) ? expired() : notFound();
+    if (seq === 'full') throw new HttpError(409, 'full');
+    notify(id, direction);
+    return seq;
   }
 
   async function frameFrom(req: IncomingMessage, res: ServerResponse): Promise<Uint8Array> {
@@ -225,22 +241,22 @@ export function createRelay(config: RelayConfig, store: RelayStore, now: () => n
     const auth = bearerHash(req);
     if (req.headers.authorization === undefined) {
       // The first post claims the channel for one phone (the hello).
-      if (channel.phoneHash) throw new HttpError(409, 'claimed');
-      if (now() - channel.createdAt >= HELLO_WINDOW_MS) throw new HttpError(410, 'expired');
+      checkHello(channel);
       limit(`channels:${clientKey(req)}`, config.limits.channels);
       const frame = await frameFrom(req, res);
       const token = randomBytes(32);
-      if (!store.claimChannel(id, sha256(token), TO_BROWSER, frame)) throw new HttpError(409, 'claimed');
+      if (!store.claimChannel(id, sha256(token), TO_BROWSER, frame, now() - HELLO_WINDOW_MS)) {
+        // Claimed, deleted or out of time while the frame arrived: say which.
+        checkHello(openChannel(id));
+        throw new HttpError(409, 'claimed');
+      }
       notify(id, TO_BROWSER);
       send(res, 201, { seq: 1, token: toBase64Url(token) });
       return;
     }
     if (!sameHash(auth, channel.phoneHash)) throw unauthorized();
     const frame = await frameFrom(req, res);
-    const seq = store.addMessage(id, TO_BROWSER, frame, MAX_MESSAGES);
-    if (seq === null) throw new HttpError(409, 'full');
-    notify(id, TO_BROWSER);
-    send(res, 201, { seq });
+    send(res, 201, { seq: addMessage(id, TO_BROWSER, frame) });
   }
 
   async function postToPhone(req: IncomingMessage, res: ServerResponse, id: string): Promise<void> {
@@ -248,10 +264,7 @@ export function createRelay(config: RelayConfig, store: RelayStore, now: () => n
     if (!sameHash(bearerHash(req), channel.browserHash)) throw unauthorized();
     if (!channel.phoneHash) throw new HttpError(409, 'not_claimed');
     const frame = await frameFrom(req, res);
-    const seq = store.addMessage(id, TO_PHONE, frame, MAX_MESSAGES);
-    if (seq === null) throw new HttpError(409, 'full');
-    notify(id, TO_PHONE);
-    send(res, 201, { seq });
+    send(res, 201, { seq: addMessage(id, TO_PHONE, frame) });
   }
 
   async function getMessages(req: IncomingMessage, res: ServerResponse, id: string, direction: number, url: URL): Promise<void> {

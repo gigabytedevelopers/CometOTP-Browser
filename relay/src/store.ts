@@ -112,7 +112,10 @@ export class RelayStore {
       insertTombstone: prepare('INSERT OR REPLACE INTO vault_tombstones (id_hash, deleted_at) VALUES (?, ?)'),
       getChannel: prepare('SELECT * FROM channels WHERE id = ?'),
       insertChannel: prepare('INSERT INTO channels (id, browser_hash, created_at) VALUES (?, ?, ?)'),
-      claimChannel: prepare('UPDATE channels SET phone_hash = ? WHERE id = ? AND phone_hash IS NULL'),
+      claimChannel: prepare(
+        'UPDATE channels SET phone_hash = ? WHERE id = ? AND phone_hash IS NULL AND deleted = 0 AND created_at > ?',
+      ),
+      isOpenChannel: prepare('SELECT 1 FROM channels WHERE id = ? AND deleted = 0 AND created_at > ?'),
       deleteChannel: prepare('UPDATE channels SET deleted = 1 WHERE id = ?'),
       countMessages: prepare('SELECT COUNT(*) AS n FROM messages WHERE channel = ? AND direction = ?'),
       insertMessage: prepare('INSERT INTO messages (channel, direction, seq, body) VALUES (?, ?, ?, ?)'),
@@ -223,21 +226,28 @@ export class RelayStore {
     });
   }
 
-  /** Claims the channel for a phone and stores its first message; false if already claimed. */
-  claimChannel(id: string, phoneHash: Uint8Array, direction: number, body: Uint8Array): boolean {
+  /**
+   * Claims the channel for a phone and stores its first message. False if it is claimed already,
+   * deleted, or was made at or before [madeAfter], the start of the hello window that is still open.
+   */
+  claimChannel(id: string, phoneHash: Uint8Array, direction: number, body: Uint8Array, madeAfter: number): boolean {
     return this.transaction(() => {
-      const changed = this.statements.claimChannel!.run(phoneHash, id).changes;
+      const changed = this.statements.claimChannel!.run(phoneHash, id, madeAfter).changes;
       if (Number(changed) !== 1) return false;
       this.statements.insertMessage!.run(id, direction, 1, body);
       return true;
     });
   }
 
-  /** Appends a message; returns its seq, or null when the direction already holds [max]. */
-  addMessage(id: string, direction: number, body: Uint8Array, max: number): number | null {
+  /**
+   * Appends a message and returns its seq: 'closed' if the channel is deleted, or was made at or
+   * before [madeAfter] and so is past its lifetime; 'full' when the direction already holds [max].
+   */
+  addMessage(id: string, direction: number, body: Uint8Array, max: number, madeAfter: number): number | 'closed' | 'full' {
     return this.transaction(() => {
+      if (!this.statements.isOpenChannel!.get(id, madeAfter)) return 'closed';
       const count = Number((this.statements.countMessages!.get(id, direction) as { n: number }).n);
-      if (count >= max) return null;
+      if (count >= max) return 'full';
       this.statements.insertMessage!.run(id, direction, count + 1, body);
       return count + 1;
     });
