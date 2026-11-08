@@ -53,10 +53,20 @@ declare namespace chrome.runtime {
 }
 
 declare namespace chrome.storage {
+  interface StorageChange {
+    oldValue?: unknown;
+    /** Absent when the item was removed. */
+    newValue?: unknown;
+  }
+
   interface StorageArea {
     get(keys: string | string[]): Promise<Record<string, unknown>>;
     set(items: Record<string, unknown>): Promise<void>;
     remove(keys: string | string[]): Promise<void>;
+    /** When items change, from any of the extension's pages or its background. */
+    onChanged: {
+      addListener(callback: (changes: Record<string, StorageChange>) => void): void;
+    };
   }
 
   /** In memory only: cleared when the browser quits, and closed to content scripts. */

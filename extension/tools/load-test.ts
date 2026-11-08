@@ -6,9 +6,9 @@
 // (see exercisePasskey). It changes the settings (see exerciseSettings). Last, it pairs with a
 // stand-in phone through a relay it starts on this computer (see exercisePairing), fills codes
 // into a page it serves (see exerciseFill), then checks the codes against the protocol package's,
-// that a change on the phone reaches the popup, and that the phone removing the browser wipes its
-// copy (see exerciseSync); it pairs again and disconnects from the browser (see
-// exerciseDisconnect).
+// that a change on the phone reaches the popup, that locking takes them away, and that the phone
+// removing the browser wipes its copy (see exerciseSync); it pairs again and disconnects from the
+// browser (see exerciseDisconnect).
 //
 // - Chrome, driven through the DevTools protocol over a pipe: Extensions.loadUnpacked, which
 //   needs --enable-unsafe-extension-debugging.
@@ -813,8 +813,9 @@ async function sameCodes(shown: string[], services: Service[]): Promise<boolean>
 
 /**
  * After pairing: the popup shows the service with the code the protocol package computes. The
- * phone then adds a service and uploads version 2, which the popup shows when it next opens. Last,
- * the phone removes the browser (deletes the vault): the popup says so and the copy is gone.
+ * phone then adds a service and uploads version 2, which the popup shows when it next opens. When
+ * the extension locks elsewhere, the open popup drops the codes at once. Last, the phone removes
+ * the browser (deletes the vault): the popup says so and the copy is gone.
  */
 async function exerciseSync(evaluate: Evaluate, open: (path: string) => Promise<void>, phone: PhoneVault): Promise<void> {
   await open('popup/popup.html');
@@ -830,6 +831,13 @@ async function exerciseSync(evaluate: Evaluate, open: (path: string) => Promise<
   await attribute(evaluate, 'the change on the phone', 'document.body.dataset.codes', (v) => v === '2');
   const second = JSON.parse((await evaluate(READ_CODES)) ?? '[]') as string[];
   if (!(await sameCodes(second, phone.services))) throw new Error(`After the change the popup shows ${JSON.stringify(second)}`);
+
+  // Locking elsewhere, as the background does after a time without use.
+  await evaluate("chrome.storage.session.remove('localKey').then(() => 'removed')");
+  await view(evaluate, 'locked');
+  if ((await evaluate("String(document.querySelectorAll('#services li').length)")) !== '0') throw new Error('The popup kept the codes once locked');
+  await evaluate(fill('unlock-form', { 'unlock-password': PASSWORD }));
+  await view(evaluate, 'unlocked');
 
   await relayCall(phone.relay, 'DELETE', `/v1/vault/${toBase64Url(phone.id)}`, toBase64Url(phone.write));
   await open('popup/popup.html');

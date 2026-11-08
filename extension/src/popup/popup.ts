@@ -3,7 +3,7 @@
 // three screens it shows is in `data-view` on the body.
 // It also pings the background and records the answer in `data-background`; the load test waits
 // for both (tools/load-test.ts).
-import { lock, passkeyCredential, reset, setUp, state, unlock, unlockWithPasskey, type LockState } from '../lock/lock.js';
+import { lock, onLockChange, passkeyCredential, reset, setUp, state, unlock, unlockWithPasskey, type LockState } from '../lock/lock.js';
 import { passkeyOutput, passkeysNeedTab, passkeysSupported } from '../lock/passkey.js';
 import { autoLockText } from '../settings/choices.js';
 import { autoLockMinutes } from '../settings/prefs.js';
@@ -180,9 +180,16 @@ element('reset-submit').addEventListener('click', () => {
   });
 });
 
-// Locking.
+// Locking, here or anywhere else: the background locks after a time without use. Either way the
+// codes go at once, and stop being computed.
 element('lock').addEventListener('click', () => {
+  clearCodes();
   void lock().then(() => show('locked'));
+});
+onLockChange((unlocked) => {
+  if (unlocked || document.body.dataset.view !== 'unlocked') return;
+  clearCodes();
+  show('locked');
 });
 
 // Unlocking with a passkey, where the browser supports the PRF extension and one was added on the

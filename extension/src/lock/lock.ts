@@ -4,7 +4,16 @@
 import { fromBase64UrlOfLength, toBase64Url, type Bytes } from '@cometotp/protocol';
 
 import { createLock, isLockRecord, openLock, openWithPasskey, relock, wrapForPasskey, type LockRecord } from './crypto.js';
-import { clearRecords, clearSessionKey, getRecord, getSessionKey, putRecord, setSessionKey, updateRecords } from './storage.js';
+import {
+  clearRecords,
+  clearSessionKey,
+  getRecord,
+  getSessionKey,
+  onSessionKeyChange,
+  putRecord,
+  setSessionKey,
+  updateRecords,
+} from './storage.js';
 
 const LOCK_RECORD = 'lock';
 
@@ -72,6 +81,14 @@ export async function changePassword(current: string, next: string): Promise<boo
 
 export function lock(): Promise<void> {
   return clearSessionKey();
+}
+
+/**
+ * Calls `listener` each time the extension locks or unlocks, wherever that happened: the
+ * background locks after a time without use, and any page may lock, unlock or reset.
+ */
+export function onLockChange(listener: (unlocked: boolean) => void): void {
+  onSessionKeyChange(listener);
 }
 
 /** M while unlocked; null while locked. */

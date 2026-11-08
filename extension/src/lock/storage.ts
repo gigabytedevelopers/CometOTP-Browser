@@ -115,3 +115,11 @@ export function setSessionKey(value: string): Promise<void> {
 export function clearSessionKey(): Promise<void> {
   return chrome.storage.session.remove(SESSION_KEY);
 }
+
+/** Calls `listener` each time M is put in storage.session or taken out, by any page or the background. */
+export function onSessionKeyChange(listener: (present: boolean) => void): void {
+  chrome.storage.session.onChanged.addListener((changes) => {
+    const change = changes[SESSION_KEY];
+    if (change) listener(typeof change.newValue === 'string');
+  });
+}

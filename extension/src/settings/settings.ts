@@ -5,7 +5,7 @@
 // What each part says is in data attributes on the body, which the load test reads
 // (tools/load-test.ts).
 import { hasSiteAccess, removeSiteAccess, requestSiteAccess } from '../fill/access.js';
-import { addPasskey, changePassword, localKey, passkeyCredential, removePasskey, state, type LockState } from '../lock/lock.js';
+import { addPasskey, changePassword, localKey, onLockChange, passkeyCredential, removePasskey, state, type LockState } from '../lock/lock.js';
 import { PasskeyError, createPasskey, passkeysSupported } from '../lock/passkey.js';
 import { MIN_LENGTH, SCORE_LABELS, problem, score } from '../lock/strength.js';
 import { OFFICIAL_RELAY } from '../sync/relay.js';
@@ -310,7 +310,7 @@ usageOffButton.addEventListener('click', () => {
   void turnUsageOff().then(() => showUsage());
 });
 
-/** Shows every part as it is now. Run again when the page comes back into view: the popup may have unlocked meanwhile. */
+/** Shows every part as it is now. Run again when the extension locks or unlocks, and when the page comes back into view. */
 async function render(): Promise<void> {
   const view = await state();
   stateNote.hidden = view === 'unlocked';
@@ -326,6 +326,7 @@ async function render(): Promise<void> {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') void render();
 });
+onLockChange(() => void render());
 
 passwordStrength.textContent = strengthText('');
 element('version').textContent = `Version ${chrome.runtime.getManifest().version}`;
