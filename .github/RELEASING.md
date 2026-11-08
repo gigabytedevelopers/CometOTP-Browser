@@ -99,10 +99,10 @@ The relay's image is published to `ghcr.io/gigabytedevelopers/cometotp-relay` by
    git push origin relay-v0.1.0
    ```
 
-The workflow refuses a tag that is not annotated, whose signature GitHub cannot verify, or whose
-version is not the one in `relay/package.json`. It then builds the image natively for `amd64` and
-`arm64`, pushes each as `X.Y.Z-amd64` and `X.Y.Z-arm64`, and joins them under `X.Y.Z`, `X.Y` and
-`latest`.
+The workflow refuses a tag that is not annotated, whose signature GitHub cannot verify, whose
+version is not the one in `relay/package.json`, or whose commit is not on `main`. It then builds
+the image natively for `amd64` and `arm64`, pushes each as `X.Y.Z-amd64` and `X.Y.Z-arm64`, and
+joins them under `X.Y.Z`, `X.Y` and `latest`.
 
 The first time, the package is private: in its settings on GitHub, change its visibility to public
 so that anyone can pull it, and check that it is linked to this repository.
@@ -153,10 +153,10 @@ it built, so the release shows as yours, and you upload the zips to the stores.
    git push origin extension-v0.1.0
    ```
 
-   The workflow refuses a tag that is not annotated, whose signature GitHub cannot verify, or whose
-   version is not the one in `extension/package.json`. It then builds and tests both packages,
-   checks them, loads each into Chrome and Firefox, and keeps as its artifact the two zips, the
-   source at the tag (`git archive`) and their `SHA256SUMS`.
+   The workflow refuses a tag that is not annotated, whose signature GitHub cannot verify, whose
+   version is not the one in `extension/package.json`, or whose commit is not on `main`. It then
+   builds and tests both packages, checks them, loads each into Chrome and Firefox, and keeps as
+   its artifact the two zips, the source at the tag (`git archive`) and their `SHA256SUMS`.
 3. Once it has passed, download that artifact, check it, and make the release from it:
 
    ```bash

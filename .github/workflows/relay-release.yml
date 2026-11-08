@@ -1,11 +1,11 @@
 name: Relay release
 
 # Publishes the relay's image to the GitHub Container Registry when a signed tag `relay-vX.Y.Z` is
-# pushed (.github/RELEASING.md). The tag must be signed, as GitHub verifies it, and match the
-# relay's version in relay/package.json. Each architecture is built natively on its own runner,
-# so nothing is emulated and no third-party action runs; the two are then joined under one tag.
-# Then it deploys that image, by digest, to the official relay on Coolify, waits until the relay
-# says it runs this version, and runs the deployed tests against it.
+# pushed (.github/RELEASING.md). The tag must be signed, as GitHub verifies it, match the relay's
+# version in relay/package.json, and name a commit on main. Each architecture is built natively on
+# its own runner, so nothing is emulated and no third-party action runs; the two are then joined
+# under one tag. Then it deploys that image, by digest, to the official relay on Coolify, waits
+# until the relay says it runs this version, and runs the deployed tests against it.
 on:
   push:
     tags: ['relay-v*']
@@ -73,6 +73,18 @@ jobs:
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # A tag can name any commit, so only one already merged into the default branch, and so
+      # reviewed, is released.
+      - name: Check that the tagged commit is on the default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git fetch --no-tags origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/$DEFAULT_BRANCH"; then
+            echo "::error::$GITHUB_REF_NAME names $GITHUB_SHA, which is not on $DEFAULT_BRANCH; tag a commit merged into it"
+            exit 1
+          fi
 
   build:
     name: Build ${{ matrix.arch }}

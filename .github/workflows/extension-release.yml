@@ -1,11 +1,12 @@
 name: Extension release
 
 # Builds the extension for release when a signed tag `extension-vX.Y.Z` is pushed
-# (.github/RELEASING.md). The tag must be signed, as GitHub verifies it, and match the extension's
-# version in extension/package.json. The packages are built and checked as the Extension workflow
-# does, loaded into Chrome and Firefox, and kept with the source and their checksums as the run's
-# artifact. Nothing is published from here: the GitHub release is made from that artifact by the
-# person who pushed the tag, so it shows as theirs, and the stores get the zips by hand.
+# (.github/RELEASING.md). The tag must be signed, as GitHub verifies it, match the extension's
+# version in extension/package.json, and name a commit on main. The packages are built and checked
+# as the Extension workflow does, loaded into Chrome and Firefox, and kept with the source and their
+# checksums as the run's artifact. Nothing is published from here: the GitHub release is made from
+# that artifact by the person who pushed the tag, so it shows as theirs, and the stores get the
+# zips by hand.
 #
 # The zips are deterministic, so anyone can build the tag and compare checksums with the release.
 on:
@@ -70,6 +71,18 @@ jobs:
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # A tag can name any commit, so only one already merged into the default branch, and so
+      # reviewed, is released.
+      - name: Check that the tagged commit is on the default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git fetch --no-tags origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/$DEFAULT_BRANCH"; then
+            echo "::error::$GITHUB_REF_NAME names $GITHUB_SHA, which is not on $DEFAULT_BRANCH; tag a commit merged into it"
+            exit 1
+          fi
 
       - name: Show the tool versions
         run: |
