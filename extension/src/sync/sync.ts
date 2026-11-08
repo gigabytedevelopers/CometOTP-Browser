@@ -11,9 +11,9 @@
 import { blobVersion, fromBase64UrlOfLength, type Bytes, type Payload } from '@cometotp/protocol';
 
 import { localKey } from '../lock/lock.js';
-import { deleteRecord, getRecord, putRecord } from '../lock/storage.js';
+import { deleteRecord, getRecord, putRecord, updateRecords } from '../lock/storage.js';
 import { RelayError, deleteVault, download } from './relay.js';
-import { acceptVersion, forgetPairing, pairingRecord, vaultSecret } from './store.js';
+import { acceptVault, forgetPairing, pairingRecord, vaultSecret } from './store.js';
 import { assess, readVault } from './vault.js';
 
 /** Something about the copy the popup should say. */
@@ -50,13 +50,17 @@ const NOTICE = 'notice';
 /** Codes depend on the clock: beyond this, the popup warns (protocol §5). */
 export const MAX_SKEW_MS = 30_000;
 
+const EMPTY_STATUS: SyncStatus = { checkedAt: null, warning: null, skew: null };
+
 export async function syncStatus(): Promise<SyncStatus> {
   const value = (await getRecord(STATUS)) as SyncStatus | undefined;
-  return value ?? { checkedAt: null, warning: null, skew: null };
+  return value ?? { ...EMPTY_STATUS };
 }
 
 async function setStatus(change: Partial<SyncStatus>): Promise<void> {
-  await putRecord(STATUS, { ...(await syncStatus()), ...change });
+  await updateRecords([STATUS], (records) => ({
+    [STATUS]: { ...EMPTY_STATUS, ...(records[STATUS] as SyncStatus | undefined), ...change },
+  }));
 }
 
 /** "disconnected" once the phone has removed this browser, until the popup has said so. */
@@ -133,9 +137,11 @@ export async function disconnect(): Promise<boolean> {
 
 /** Checks a version kept aside, if unlocked, and takes it or warns (protocol §7.2). */
 export async function acceptPending(): Promise<void> {
+  // The pairing before the version kept aside: had another page accepted that one meanwhile, the
+  // version accepted read after it would be higher, and it would look like a rollback.
+  const record = await pairingRecord();
   const pending = (await getRecord(PENDING)) as Kept | undefined;
   const key = await localKey();
-  const record = await pairingRecord();
   if (!pending || !key || !record) return;
   const secret = await vaultSecret(key);
   if (!secret) return;
@@ -145,11 +151,13 @@ export async function acceptPending(): Promise<void> {
     fromBase64UrlOfLength(secret.key, 32, 'The vault key'),
     fromBase64UrlOfLength(record.vault, 16, 'The vault id'),
   );
-  await deleteRecord(PENDING);
+  // Done with the version checked, but not with a newer one kept aside meanwhile.
+  await updateRecords([PENDING], (records) =>
+    (records[PENDING] as Kept | undefined)?.version === pending.version ? { [PENDING]: undefined } : {},
+  );
   if (assessment.kind === 'accept') {
-    await putRecord(BLOB, { version: assessment.version, blob: pending.blob } satisfies Kept);
-    await acceptVersion(record.vault, assessment.version);
-    await setStatus({ warning: null });
+    // Only over an older copy: the popup and the background may both have checked versions.
+    if (await acceptVault(record.vault, assessment.version, pending.blob)) await setStatus({ warning: null });
   } else if (assessment.kind === 'rollback') await setStatus({ warning: 'rollback' });
   else if (assessment.kind === 'bad') await setStatus({ warning: 'bad-vault' });
   else if (assessment.kind === 'newer-format') await setStatus({ warning: 'needs-update' });

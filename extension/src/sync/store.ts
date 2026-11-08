@@ -5,7 +5,7 @@
 import { fromBase64UrlOfLength, fromUtf8, utf8, type Bytes } from '@cometotp/protocol';
 
 import { openPrivate, sealPrivate, type Sealed } from '../lock/crypto.js';
-import { deleteRecord, getRecord, putRecord } from '../lock/storage.js';
+import { deleteRecord, getRecord, putRecord, updateRecords } from '../lock/storage.js';
 import { LINKS } from '../fill/links.js';
 import type { Paired } from '../pair/pairing.js';
 import { OFFICIAL_RELAY } from './relay.js';
@@ -76,10 +76,20 @@ export async function forgetPairing(): Promise<void> {
   await deleteRecord(LINKS);
 }
 
-/** Raises the version accepted from `vault`, unless the pairing changed meanwhile. */
-export async function acceptVersion(vault: string, version: number): Promise<void> {
-  const record = await pairingRecord();
-  if (record?.vault === vault && version > record.version) await putRecord(PAIRING, { ...record, version });
+/**
+ * Keeps `blob`, checked as version `version` of `vault`, as the copy, and raises the version
+ * accepted to it, in one transaction: unless the pairing changed meanwhile, or accepted as high a
+ * version, as the background and the popup may both be accepting one. Says whether it did.
+ */
+export async function acceptVault(vault: string, version: number, blob: Bytes): Promise<boolean> {
+  let accepted = false;
+  await updateRecords([PAIRING], (records) => {
+    const record = records[PAIRING];
+    if (!isPairingRecord(record) || record.vault !== vault || version <= record.version) return {};
+    accepted = true;
+    return { [BLOB]: { version, blob }, [PAIRING]: { ...record, version } };
+  });
+  return accepted;
 }
 
 /** The relay to pair through: the person's own, or the official one. */
