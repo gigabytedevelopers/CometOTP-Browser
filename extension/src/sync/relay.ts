@@ -137,8 +137,8 @@ export async function download(relay: string, vault: string, readToken: string, 
  * (410), or one the relay no longer knows this browser for (401, 404), is fine: nothing is left to
  * delete.
  */
-export async function deleteVault(relay: string, vault: string, readToken: string): Promise<void> {
-  const response = await call(relay, 'DELETE', `/v1/vault/${vault}`, { token: readToken });
+export async function deleteVault(relay: string, vault: string, readToken: string, signal?: AbortSignal): Promise<void> {
+  const response = await call(relay, 'DELETE', `/v1/vault/${vault}`, { token: readToken, signal });
   if (response.ok || [401, 404, 410].includes(response.status)) return;
   throw await failure(response);
 }

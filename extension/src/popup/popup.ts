@@ -184,8 +184,9 @@ element('forgot').addEventListener('click', () => {
 element('reset-cancel').addEventListener('click', () => {
   resetPanel.hidden = true;
 });
-element('reset-submit').addEventListener('click', () => {
-  void reset().then(() => {
+const resetSubmit = element<HTMLButtonElement>('reset-submit');
+resetSubmit.addEventListener('click', () => {
+  void busy(resetSubmit, 'Resetting…', reset).then(() => {
     resetPanel.hidden = true;
     show('new');
   });

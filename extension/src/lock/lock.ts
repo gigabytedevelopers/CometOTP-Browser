@@ -3,6 +3,8 @@
 // then on nothing private can be opened until one of them is given again.
 import { fromBase64UrlOfLength, toBase64Url, type Bytes } from '@cometotp/protocol';
 
+import { deleteVault } from '../sync/relay.js';
+import { pairingRecord } from '../sync/store.js';
 import { createLock, isLockRecord, openLock, openWithPasskey, relock, wrapForPasskey, type LockRecord } from './crypto.js';
 import {
   clearRecords,
@@ -16,6 +18,9 @@ import {
 } from './storage.js';
 
 const LOCK_RECORD = 'lock';
+
+/** How long a reset waits for the relay to delete the vault. */
+const RESET_DELETE_MS = 5000;
 
 /** No password yet; a password but no M in memory; or M in memory. */
 export type LockState = 'new' | 'locked' | 'unlocked';
@@ -128,8 +133,17 @@ export async function removePasskey(): Promise<void> {
   await updateLock(({ passkey, ...rest }) => (passkey ? rest : null));
 }
 
-/** Forgets the password and everything the extension keeps, for someone who has forgotten it. */
+/**
+ * Forgets the password and everything the extension keeps, for someone who has forgotten it. First
+ * it deletes the vault on the relay, as Disconnect does, with the read token, which is outside M:
+ * the phone then learns at its next upload that this browser is gone. That is best effort, and
+ * waits a few seconds at most.
+ */
 export async function reset(): Promise<void> {
+  const pairing = await pairingRecord();
+  if (pairing) {
+    await deleteVault(pairing.relay, pairing.vault, pairing.read, AbortSignal.timeout(RESET_DELETE_MS)).catch(() => undefined);
+  }
   await clearSessionKey();
   await clearRecords();
 }

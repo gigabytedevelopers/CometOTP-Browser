@@ -1,10 +1,10 @@
 // The lock as the popup and the background use it (src/lock/lock.ts), over the stand-in IndexedDB
 // and storage.session (./fake-browser.ts): set up, locked and unlocked, a new password, a passkey,
-// and changes that overlap, as a page and the background, or two pages, may make them.
+// a reset, and changes that overlap, as a page and the background, or two pages, may make them.
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { randomBytes } from '@cometotp/protocol';
+import { randomBytes, toBase64Url } from '@cometotp/protocol';
 
 import {
   addPasskey,
@@ -20,6 +20,7 @@ import {
   unlockWithPasskey,
 } from '../src/lock/lock.js';
 import { getRecord, putRecord } from '../src/lock/storage.js';
+import { pairingRecord, storePairing } from '../src/sync/store.js';
 import { installBrowser } from './fake-browser.js';
 
 const PASSWORD = 'orbit lantern pickle';
@@ -130,5 +131,25 @@ describe('the lock, over its storage', () => {
     assert.equal(await state(), 'new');
     assert.equal(await localKey(), null);
     assert.equal(await getRecord('auto-lock'), undefined);
+  });
+
+  it('deletes the vault on the relay first when paired, even while locked, and resets if it cannot', async () => {
+    for (const reachable of [true, false]) {
+      installBrowser();
+      await setUp(PASSWORD);
+      const vault = { id: toBase64Url(randomBytes(16)), read: toBase64Url(randomBytes(32)), key: toBase64Url(randomBytes(32)) };
+      await storePairing({ relay: 'https://relay.example.com', vault, phone: 'Pixel 7' }, (await localKey())!);
+      await lock();
+      const calls: string[] = [];
+      globalThis.fetch = async (input, init) => {
+        calls.push(`${init?.method} ${String(input)} ${(init?.headers as Record<string, string>).Authorization}`);
+        if (!reachable) throw new TypeError('fetch failed');
+        return new Response(null, { status: 204 });
+      };
+      await reset();
+      assert.deepEqual(calls, [`DELETE https://relay.example.com/v1/vault/${vault.id} Bearer ${vault.read}`]);
+      assert.equal(await state(), 'new');
+      assert.equal(await pairingRecord(), null);
+    }
   });
 });
