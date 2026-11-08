@@ -50,6 +50,69 @@ id=$(gh api repos/gigabytedevelopers/CometOTP-Browser/rulesets --jq '.[] | selec
 gh api -X PUT "repos/gigabytedevelopers/CometOTP-Browser/rulesets/$id" --input .github/rulesets/protect-main.json
 ```
 
+## Protecting releases
+
+A release workflow runs the copy of itself in the commit its tag names. Its checks, a signed tag on
+a commit on `main`, catch a tag pushed by mistake; but whoever may push a `relay-v*` tag could name
+a commit whose workflow leaves them out and goes straight to the `relay-production` environment and
+its Coolify token. Two settings, which only an admin can apply, close that:
+
+- The ruleset **Security: release tags from the owners**, of which
+  `.github/rulesets/protect-release-tags.json` is a copy, lets only `@gigabytedevelopersinc` and
+  `@enwokoma` create, move or delete `relay-v*` and `extension-v*` tags. GitHub refuses such a tag
+  from anyone else.
+- Required reviewers on `relay-production`: the deploy job waits until `@gigabytedevelopersinc`,
+  `@enwokoma` or `@princesseke`, but not the person who pushed the tag, approves it in the run
+  (**Review deployments**). The image is published before that, either way.
+
+Create the tag ruleset once:
+
+```bash
+gh api -X POST repos/gigabytedevelopers/CometOTP-Browser/rulesets --input .github/rulesets/protect-release-tags.json
+```
+
+After changing the file, apply it to that ruleset, as for `main`:
+
+```bash
+id=$(gh api repos/gigabytedevelopers/CometOTP-Browser/rulesets --jq '.[] | select(.name == "Security: release tags from the owners") | .id')
+gh api -X PUT "repos/gigabytedevelopers/CometOTP-Browser/rulesets/$id" --input .github/rulesets/protect-release-tags.json
+```
+
+Its bypass list names the owners by their GitHub user ids, `26210471` and `26168869`; add someone's
+id (`gh api users/<login> --jq .id`) to let them push release tags too.
+
+Then require the reviewers on the environment: `26210471`, `26168869` and `105234519` are
+`@gigabytedevelopersinc`, `@enwokoma` and `@princesseke`. `prevent_self_review` keeps the person who
+pushed the tag from approving their own deployment, as with pull requests. The call sets the whole
+environment, so it restates that deployments stay limited to the environment's own tag rules:
+
+```bash
+gh api -X PUT repos/gigabytedevelopers/CometOTP-Browser/environments/relay-production --input - <<'EOF'
+{
+  "prevent_self_review": true,
+  "reviewers": [
+    {"type": "User", "id": 26210471},
+    {"type": "User", "id": 26168869},
+    {"type": "User", "id": 105234519}
+  ],
+  "deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}
+}
+EOF
+```
+
+Check that the environment now has its reviewers, and still deploys only `relay-v*` tags:
+
+```bash
+gh api repos/gigabytedevelopers/CometOTP-Browser/environments/relay-production --jq '.protection_rules[] | {type, prevent_self_review, reviewers: [.reviewers[]?.reviewer.login]}'
+gh api repos/gigabytedevelopers/CometOTP-Browser/environments/relay-production/deployment-branch-policies --jq '.branch_policies[] | {name, type}'
+```
+
+If the second lists no `relay-v*` tag, add it back:
+
+```bash
+gh api -X POST repos/gigabytedevelopers/CometOTP-Browser/environments/relay-production/deployment-branch-policies -f name='relay-v*' -f type=tag
+```
+
 ## Merging so the commits keep your signature
 
 Do not use the merge button on your own pull requests. GitHub's squash and merge commits are
@@ -110,8 +173,9 @@ so that anyone can pull it, and check that it is linked to this repository.
 
 ### Deploying to the official relay
 
-Then the workflow deploys the release to the official relay, `https://relay.gigabytedevelopers.com`,
-a service in Coolify (`.github/scripts/deploy_relay.py`):
+Then, once a reviewer approves it (see "Protecting releases"), the workflow deploys the release to
+the official relay, `https://relay.gigabytedevelopers.com`, a service in Coolify
+(`.github/scripts/deploy_relay.py`):
 
 1. It gives the service `relay/deploy/coolify.yaml` with the image just published, pinned to its
    digest, and a description naming the release and its commit.
@@ -139,11 +203,11 @@ Environments):
 | Variable | `COOLIFY_SERVICE_UUID` | The relay service's UUID, the last part of its address in Coolify |
 | Variable | `RELAY_URL` | `https://relay.gigabytedevelopers.com` |
 
-Limit the environment's deployments to tags matching `relay-v*`, so no branch can use the token.
-In Coolify, the API must be on (Settings → Advanced → API Access), and its allowed IPs must let in
-GitHub's runners (empty allows any). Create the token in Keys & Tokens → API tokens while in the
-team that owns the service, as one of its admins; Coolify refuses tokens with write or deploy from
-members.
+Limit the environment's deployments to tags matching `relay-v*`, so no branch can use the token,
+and require its reviewers, as "Protecting releases" says. In Coolify, the API must be on (Settings
+→ Advanced → API Access), and its allowed IPs must let in GitHub's runners (empty allows any).
+Create the token in Keys & Tokens → API tokens while in the team that owns the service, as one of
+its admins; Coolify refuses tokens with write or deploy from members.
 
 ## Releasing the extension
 

@@ -1,0 +1,40 @@
+{
+  "name": "Security: release tags from the owners",
+  "target": "tag",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "exclude": [],
+      "include": [
+        "refs/tags/relay-v*",
+        "refs/tags/extension-v*"
+      ]
+    }
+  },
+  "bypass_actors": [
+    {
+      "actor_id": 26210471,
+      "actor_type": "User",
+      "bypass_mode": "always"
+    },
+    {
+      "actor_id": 26168869,
+      "actor_type": "User",
+      "bypass_mode": "always"
+    }
+  ],
+  "rules": [
+    {
+      "type": "creation"
+    },
+    {
+      "parameters": {
+        "update_allows_fetch_and_merge": false
+      },
+      "type": "update"
+    },
+    {
+      "type": "deletion"
+    }
+  ]
+}
