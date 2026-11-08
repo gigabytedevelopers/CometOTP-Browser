@@ -319,7 +319,7 @@ async function exerciseDisconnect(evaluate: Evaluate, open: (path: string) => Pr
   await evaluate(click('disconnect'));
   await evaluate(click('disconnect-yes'));
   await attribute(evaluate, 'the relay to hear the browser disconnect', 'document.body.dataset.disconnected', (v) => v === 'relay');
-  for (const record of ['pairing', 'vault-secret', 'vault-blob', 'site-links']) {
+  for (const record of ['pairing', 'vault-secret', 'vault-blob', 'site-links', 'site-hidden']) {
     if ((await evaluate(readRecord(record))) !== 'null') throw new Error(`Disconnect kept the record "${record}"`);
   }
   const refused = await upload(phone, 9).then(
@@ -938,11 +938,13 @@ async function codeSince(shown: string | undefined, service: Service, since: num
  * Filling codes into a page this test serves, under a strict content security policy. The popup
  * says filling is on (the build has access to sites already). Focusing the page's code field shows the
  * CometOTP button, and the email field does not. The button opens the menu: on 127.0.0.1 nothing is
- * offered at first, a search finds the service, and choosing it, then confirming the site as its
- * first, fills the field with its code and links it to the site. Then six one-digit boxes get one digit each, from the service now offered
- * first; a field in a frame from the same host gets the button, and one from another host does
- * not; Escape closes the menu. Last, where the browser lets the extension give access back
- * (Firefox: Chrome keeps access the manifest asks for), Turn off removes the button.
+ * offered at first but every service is listed, a search narrows them to the service, and choosing
+ * it, then confirming the site as its first, fills the field with its code and links it to the site.
+ * Then six one-digit boxes get one digit each, from the service now offered first. Taking it off
+ * the site moves it back among the rest, and the settings page then lists no site; a field in a
+ * frame from the same host gets the button, and one from another host does not; Escape closes the
+ * menu. Last, where the browser lets the extension give access back (Firefox: Chrome keeps access
+ * the manifest asks for), Turn off removes the button.
  */
 async function exerciseFill(driver: FillDriver, phone: PhoneVault, pages: Pages, canTurnOff: boolean): Promise<void> {
   const { evaluate } = driver;
@@ -994,10 +996,16 @@ async function exerciseFill(driver: FillDriver, phone: PhoneVault, pages: Pages,
   await evaluate("(document.getElementById('email').focus(), 'focused')");
   await attribute(evaluate, 'no button in the email field', HAS_BUTTON, (v) => v === 'no');
 
-  // Nothing is linked to this site yet, and "GitHub" does not name it: a search finds the service.
+  // Nothing is linked to this site yet, and "GitHub" does not name it: the service is listed among
+  // the rest, and a search narrows them to it.
   await button("document.getElementById('otp')");
   await openMenu("document.getElementById('otp')", false);
   await inMenu('the menu to offer nothing', "String(document.getElementById('none').hidden)", (v) => v === 'false');
+  await inMenu(
+    'the menu to list the service',
+    "String([...document.querySelectorAll('#found .issuer')].some((e) => e.textContent === 'GitHub'))",
+    (v) => v === 'true',
+  );
   await menu(`(() => { const s = document.getElementById('search'); s.value = 'git'; s.dispatchEvent(new Event('input')); return 'searched'; })()`);
   await inMenu('the search to find the service', "String(document.querySelectorAll('#found .service').length)", (v) => v === '1');
   let chosen = Date.now();
@@ -1022,9 +1030,17 @@ async function exerciseFill(driver: FillDriver, phone: PhoneVault, pages: Pages,
   const digits = await evaluate("[...document.querySelectorAll('#boxes input')].map((i) => i.value).join('')");
   if (!(await codeSince(digits, service, chosen))) throw new Error(`The boxes hold "${digits}", not the service's code`);
 
-  // Escape closes the menu.
+  // Taken off the site, the service is no longer offered first but still listed; Escape closes the menu.
   await button("document.getElementById('otp')");
   await openMenu("document.getElementById('otp')", false);
+  await inMenu('the menu to offer the linked service again', "document.querySelector('#offered .issuer')?.textContent", (v) => v === 'GitHub');
+  await menu("(document.querySelector('#offered .forget').click(), 'removed')");
+  await inMenu('the service to leave the offer', "String(document.querySelectorAll('#offered .service').length)", (v) => v === '0');
+  await inMenu(
+    'the service to be listed among the rest',
+    "String([...document.querySelectorAll('#found .issuer')].some((e) => e.textContent === 'GitHub'))",
+    (v) => v === 'true',
+  );
   await menu("(document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })), 'pressed')");
   await menuGone();
 
@@ -1038,6 +1054,7 @@ async function exerciseFill(driver: FillDriver, phone: PhoneVault, pages: Pages,
 
   await driver.open('settings/settings.html');
   if ((await evaluate(readRecord('site-links'))) === 'null') throw new Error('The service was not linked to the site');
+  await attribute(evaluate, 'the settings page to list no site once the service was taken off', 'document.body.dataset.sites', (v) => v === '0');
   if (canTurnOff) {
     await evaluate(click('filling-off'));
     await attribute(evaluate, 'access to sites to be removed', 'document.body.dataset.filling', (v) => v === 'off');
