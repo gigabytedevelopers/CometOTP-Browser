@@ -248,16 +248,99 @@ it built, so the release shows as yours, and you upload the zips to the stores.
    cmp extension/dist/cometotp-firefox-$v.zip "release-$v/cometotp-firefox-$v.zip"
    ```
 
-4. Upload the zips to the stores by hand, with the listing in `extension/store/README.md`:
-   - **Chrome Web Store:** `cometotp-chromium-X.Y.Z.zip`. The same zip goes to Microsoft Edge
-     Add-ons, if listed there.
-   - **Firefox Add-ons:** `cometotp-firefox-X.Y.Z.zip`, and the source zip when asked for it, as
-     its code was written by a compiler (TypeScript).
+4. Get the zips to the stores, with the listing in `extension/store/README.md`:
+   - **Chrome Web Store:** publishing the release starts `extension-chrome.yml`, which uploads
+     `cometotp-chromium-X.Y.Z.zip` and submits it for review (see "Publishing to the Chrome Web
+     Store" below). Check that it passed:
+     `gh run list --workflow extension-chrome.yml --limit 1`. The same zip goes to Microsoft Edge
+     Add-ons by hand, if listed there.
+   - **Firefox Add-ons:** by hand, `cometotp-firefox-X.Y.Z.zip`, and the source zip when asked for
+     it, as its code was written by a compiler (TypeScript).
 
    Once a store approves the version, copies installed from it update on their own, Chrome within
    hours and Firefox within a day. To get it at once: in Chromium, **Check for updates** on the
    extension's settings page; in Firefox, **Check for Updates** in the Add-ons Manager's gear menu,
    which the settings page points to, as Firefox cannot be asked from the extension.
+
+### Publishing to the Chrome Web Store
+
+`extension-chrome.yml` runs when a GitHub release of an `extension-v*` tag is published. It
+downloads the release's Chromium zip, checks it against the release's `SHA256SUMS`, the tag's
+signature, that the tag names a commit on `main` and that the zip's manifest has the tag's version.
+Then it uploads the zip through the Chrome Web Store API (v2) and submits it for review; it goes
+live once Google approves it, as a manual upload does. No code from the tagged commit runs: the
+upload script, `.github/scripts/publish_chrome.py`, comes from `main`.
+
+It signs in to Google with no stored key. The job asks GitHub for an identity token, and Google's
+Workload Identity Federation trades it for a 15-minute access token for the service account the
+publisher added in the developer dashboard. Google accepts only tokens from this repository (by
+its numeric id, so a renamed or recreated repository does not count), from a job in the
+`chrome-web-store` environment, on an `extension-v*` tag. GitHub lets only `extension-v*` tags use
+that environment, and the tag ruleset lets only the owners create those tags.
+
+If a run fails (the store was down, or a setting below is missing), fix the cause and run it again
+on the same tag:
+
+```bash
+gh workflow run extension-chrome.yml --ref extension-vX.Y.Z
+```
+
+The store refuses a version it already has, so a run whose upload went through is not repeated;
+submit it from the dashboard instead.
+
+#### Setting it up (once)
+
+An admin does this once. It needs the `gcloud` CLI signed in to the Google account that owns the
+Chrome Web Store publisher, and the Google Cloud project `cometotp`.
+
+1. **Google Cloud:** enable the APIs, create the service account, and let this repository's
+   release jobs act as it:
+
+   ```bash
+   project=cometotp
+   number=$(gcloud projects describe "$project" --format='value(projectNumber)')
+   gcloud services enable chromewebstore.googleapis.com iam.googleapis.com iamcredentials.googleapis.com sts.googleapis.com --project "$project"
+   gcloud iam service-accounts create chrome-web-store --project "$project" \
+     --display-name 'Chrome Web Store uploads from CometOTP-Browser releases'
+   gcloud iam workload-identity-pools create github --project "$project" --location global \
+     --display-name 'GitHub Actions'
+   gcloud iam workload-identity-pools providers create-oidc cometotp-browser --project "$project" \
+     --location global --workload-identity-pool github --display-name 'CometOTP-Browser releases' \
+     --issuer-uri https://token.actions.githubusercontent.com \
+     --attribute-mapping 'google.subject=assertion.sub,attribute.repository_id=assertion.repository_id,attribute.environment=assertion.environment,attribute.ref=assertion.ref' \
+     --attribute-condition "assertion.repository_id == '502735331' && assertion.repository_owner_id == '19718407' && assertion.environment == 'chrome-web-store' && assertion.ref.startsWith('refs/tags/extension-v')"
+   gcloud iam service-accounts add-iam-policy-binding "chrome-web-store@$project.iam.gserviceaccount.com" \
+     --project "$project" --role roles/iam.workloadIdentityUser \
+     --member "principalSet://iam.googleapis.com/projects/$number/locations/global/workloadIdentityPools/github/attribute.repository_id/502735331"
+   ```
+
+   `502735331` and `19718407` are the ids of this repository and of `gigabytedevelopers`
+   (`gh api repos/gigabytedevelopers/CometOTP-Browser --jq '.id, .owner.id'`).
+
+2. **Chrome Web Store developer dashboard:** in **Account**, add
+   `chrome-web-store@cometotp.iam.gserviceaccount.com` as the publisher's service account (a
+   publisher can have only one). The Google account needs 2-Step Verification, as for any upload.
+   Note the publisher id shown there and the item id of CometOTP (the 32 letters in its dashboard
+   and store addresses).
+
+3. **GitHub:** create the environment, limited to `extension-v*` tags, and give it the four
+   settings. None of them is a secret.
+
+   ```bash
+   repo=repos/gigabytedevelopers/CometOTP-Browser
+   gh api -X PUT "$repo/environments/chrome-web-store" --input - <<'EOF'
+   {"deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}
+   EOF
+   gh api -X POST "$repo/environments/chrome-web-store/deployment-branch-policies" -f name='extension-v*' -f type=tag
+   gh variable set CWS_PUBLISHER_ID --env chrome-web-store --body '<publisher id>'
+   gh variable set CWS_ITEM_ID --env chrome-web-store --body '<item id>'
+   gh variable set GCP_WORKLOAD_IDENTITY_PROVIDER --env chrome-web-store \
+     --body "projects/$(gcloud projects describe cometotp --format='value(projectNumber)')/locations/global/workloadIdentityPools/github/providers/cometotp-browser"
+   gh variable set GCP_SERVICE_ACCOUNT --env chrome-web-store --body chrome-web-store@cometotp.iam.gserviceaccount.com
+   ```
+
+The API publishes with the item's current visibility. If visibility was changed in the dashboard,
+publish one version there by hand first; the API can publish after that.
 
 ## Commit signatures
 
