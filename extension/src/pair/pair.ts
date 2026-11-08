@@ -6,7 +6,7 @@ import { localKey, state } from '../lock/lock.js';
 import * as relayApi from '../sync/relay.js';
 import { isRelay, relayUrl } from '../sync/relay.js';
 import { chooseRelay, chosenRelay, forgetPairing, pairingRecord, storePairing, vaultSecret } from '../sync/store.js';
-import { services, sync } from '../sync/sync.js';
+import { disconnect, services, sync } from '../sync/sync.js';
 import { pairingName } from '../settings/prefs.js';
 import { report } from '../usage/usage.js';
 import { BrowserPairing, type PairingFailure, type PairingStep } from './pairing.js';
@@ -178,6 +178,19 @@ element('confirm').addEventListener('click', () => pairing?.confirm());
 element('compare-cancel').addEventListener('click', () => pairing?.cancel());
 element('finishing-cancel').addEventListener('click', () => pairing?.cancel());
 element('retry').addEventListener('click', () => void start());
+// Pairing again, after the relay forgot this browser (401, 404) say, starts with Disconnect.
+const pairedDisconnect = element<HTMLButtonElement>('paired-disconnect');
+pairedDisconnect.addEventListener('click', () => {
+  pairedDisconnect.disabled = true;
+  void disconnect()
+    .then(() => {
+      report('browser_disconnected');
+      return start();
+    })
+    .finally(() => {
+      pairedDisconnect.disabled = false;
+    });
+});
 element('done-close').addEventListener('click', () => window.close());
 // Leaving the page cancels a pairing under way, telling the phone when it can.
 addEventListener('pagehide', () => pairing?.cancel());

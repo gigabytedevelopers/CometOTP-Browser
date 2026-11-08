@@ -19,13 +19,14 @@ const empty = element('codes-empty');
 const updated = element('updated');
 const clockWarning = element('clock-warning');
 const syncWarning = element('sync-warning');
+const repair = element('repair');
 const copied = element('copied');
 
 const WARNINGS: Record<SyncWarning, string> = {
   rollback: 'The relay sent an older copy than this browser has, so it was ignored. If this keeps happening, the relay may be holding back updates.',
   'bad-vault': 'The relay sent a copy that does not open, so it was ignored. These are the codes from before.',
   'needs-update': 'Your phone sent its services in a newer format. Update the CometOTP extension to see them.',
-  repair: 'The relay no longer knows this browser. Remove it in CometOTP on your phone, then pair it again.',
+  repair: 'The relay no longer knows this browser. Remove it in CometOTP on your phone, then disconnect it here and pair it again.',
   unreachable: 'The relay could not be reached. These codes are from the last copy downloaded.',
 };
 
@@ -171,6 +172,7 @@ export async function renderCodes(): Promise<void> {
   const warning = status.warning === 'unreachable' ? (stale ? 'unreachable' : null) : status.warning;
   syncWarning.hidden = !warning;
   syncWarning.textContent = warning ? WARNINGS[warning] : '';
+  repair.hidden = warning !== 'repair';
 
   clearInterval(timer);
   await tick();

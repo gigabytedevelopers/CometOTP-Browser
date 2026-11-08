@@ -7,12 +7,12 @@ import { blobVersion, buildPayload, randomBytes, sealVault, toBase64Url, type By
 
 import { clearSessionKey, getRecord, putRecord, setSessionKey } from '../src/lock/storage.js';
 import { pairingRecord, storePairing } from '../src/sync/store.js';
-import { acceptPending, notice, services, sync, syncStatus } from '../src/sync/sync.js';
+import { acceptPending, disconnect, notice, services, sync, syncStatus } from '../src/sync/sync.js';
 import { installBrowser, type FakeIndexedDB } from './fake-browser.js';
 
 const RELAY = 'https://relay.example.com';
 
-/** The relay, as far as downloads go: the vault the phone uploaded, or a status in its place. */
+/** The relay, as far as the browser goes: the vault the phone uploaded, or a status in its place. */
 class Relay {
   blob: Bytes | null = null;
   /** Answered instead of the vault, such as 401 or 410. */
@@ -34,6 +34,10 @@ class Relay {
     const date = { Date: new Date().toUTCString() };
     const error = (code: number, error: string) => Response.json({ error }, { status: code, headers: date });
     if (this.status) return error(this.status.code, this.status.error);
+    if (init.method === 'DELETE') {
+      this.blob = null;
+      return new Response(null, { status: 204, headers: date });
+    }
     if (!this.blob) return error(404, 'empty');
     const etag = `"${blobVersion(this.blob)}"`;
     if (headers['If-None-Match'] === etag) return new Response(null, { status: 304, headers: { ...date, ETag: etag } });
@@ -53,9 +57,11 @@ let relay: Relay;
 let vaultKey: Bytes;
 let vaultId: Bytes;
 let localKey: Bytes;
+let read: string;
 
 /** Version `version` of the vault, its one service named `issuer`. */
 const vault = (version: number, issuer = `Version ${version}`) => sealVault(vaultKey, vaultId, version, buildPayload(payload(issuer)));
+const pair = () => storePairing({ relay: RELAY, vault: { id: toBase64Url(vaultId), read, key: toBase64Url(vaultKey) }, phone: 'Pixel 7' }, localKey);
 const unlock = () => setSessionKey(toBase64Url(localKey));
 const lock = () => clearSessionKey();
 const shown = async () => (await services())?.payload.services.map((s) => s.issuer) ?? null;
@@ -65,9 +71,9 @@ beforeEach(async () => {
   vaultKey = randomBytes(32);
   vaultId = randomBytes(16);
   localKey = randomBytes(32);
-  const read = toBase64Url(randomBytes(32));
+  read = toBase64Url(randomBytes(32));
   relay = new Relay(toBase64Url(vaultId), read);
-  await storePairing({ relay: RELAY, vault: { id: toBase64Url(vaultId), read, key: toBase64Url(vaultKey) }, phone: 'Pixel 7' }, localKey);
+  await pair();
   await unlock();
 });
 
@@ -187,6 +193,23 @@ describe('sync', () => {
     await sync();
     assert.equal((await syncStatus()).warning, null);
     assert.deepEqual(await shown(), ['Version 1']);
+  });
+
+  it('disconnects, deleting the vault on the relay, also when the relay no longer knows the browser', async () => {
+    for (const status of [null, { code: 401, error: 'unauthorized' }, { code: 404, error: 'not_found' }, { code: 410, error: 'gone' }]) {
+      relay.blob = await vault(1);
+      await sync();
+      relay.status = status;
+      assert.equal(await disconnect(), true, String(status?.code));
+      assert.equal(await pairingRecord(), null);
+      assert.equal(await getRecord('vault-blob'), undefined);
+      if (!status) assert.equal(relay.blob, null);
+      relay.status = null;
+      await pair();
+    }
+    relay.reachable = false;
+    assert.equal(await disconnect(), false);
+    assert.equal(await pairingRecord(), null);
   });
 
   it('keeps the newest version when the popup and the background accept versions at once', async () => {

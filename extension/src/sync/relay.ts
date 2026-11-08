@@ -132,9 +132,13 @@ export async function download(relay: string, vault: string, readToken: string, 
   throw error;
 }
 
-/** Deletes the vault with the read token, for Disconnect (protocol §7.2). A vault already gone is fine. */
+/**
+ * Deletes the vault with the read token, for Disconnect (protocol §7.2). A vault already gone
+ * (410), or one the relay no longer knows this browser for (401, 404), is fine: nothing is left to
+ * delete.
+ */
 export async function deleteVault(relay: string, vault: string, readToken: string): Promise<void> {
   const response = await call(relay, 'DELETE', `/v1/vault/${vault}`, { token: readToken });
-  if (response.ok || response.status === 410) return;
+  if (response.ok || [401, 404, 410].includes(response.status)) return;
   throw await failure(response);
 }

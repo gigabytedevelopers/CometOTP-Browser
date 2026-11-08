@@ -8,7 +8,7 @@ import { passkeyOutput, passkeysNeedTab, passkeysSupported } from '../lock/passk
 import { autoLockText } from '../settings/choices.js';
 import { autoLockMinutes } from '../settings/prefs.js';
 import { pairingRecord } from '../sync/store.js';
-import { clearNotice, notice, sync } from '../sync/sync.js';
+import { clearNotice, disconnect, notice, sync } from '../sync/sync.js';
 import { clearCodes, renderCodes } from './codes.js';
 import { MIN_LENGTH, SCORE_LABELS, problem, score } from '../lock/strength.js';
 import { isPong } from '../messages.js';
@@ -76,9 +76,20 @@ async function showPairing(): Promise<void> {
   else await showPairing();
 }
 
-pairButton.addEventListener('click', () => {
+function openPairing(): void {
   void chrome.tabs.create({ url: chrome.runtime.getURL('pair/pair.html') });
   window.close();
+}
+
+pairButton.addEventListener('click', openPairing);
+
+// A browser the relay no longer knows (401, 404) can pair again only once disconnected here.
+const repairButton = element<HTMLButtonElement>('repair');
+repairButton.addEventListener('click', () => {
+  void busy(repairButton, 'Disconnecting…', disconnect).then(() => {
+    report('browser_disconnected');
+    openPairing();
+  });
 });
 
 function message(error: unknown): string {
