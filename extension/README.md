@@ -110,6 +110,13 @@ while Firefox shows the passkey and permission prompts.
 - **Passkey:** add, replace or remove one. Adding seals M, so it needs the extension unlocked.
 - **Fill codes into sites:** on and off (see above).
 - **Usage statistics:** off unless the person turns them on (see below).
+- **Updates** (`src/settings/update.ts`): a copy from a store updates itself on the browser's
+  schedule, Chrome within hours and Firefox within a day. **Check for updates** asks the store at
+  once (`runtime.requestUpdateCheck`); when the browser has downloaded a newer version
+  (`runtime.onUpdateAvailable`), the page restarts the extension to install it, which locks it as
+  quitting the browser does. The page listens for that only while it is open, since Firefox holds
+  an update back for as long as anything listens. A copy loaded from a folder says it cannot update
+  itself, as `management.getSelf` reports it as a development install; that needs no permission.
 
 ## Usage statistics
 
@@ -322,7 +329,8 @@ npm run load-test --workspace @cometotp/extension
   the settings page, and unlocks with it in the popup to the same key; an authenticator without
   PRF is refused, and the password still works. WebDriver BiDi has no virtual authenticator yet,
   so in Firefox it only checks whether passkeys are offered. On the settings page it checks that
-  usage statistics are off with no id kept, chooses a lock time (the popup must then say it),
+  usage statistics are off with no id kept, that the build, loaded from a folder, says it cannot
+  update itself, chooses a lock time (the popup must then say it),
   names the browser (the stand-in phone below checks the name in the pairing code), and changes
   the password: a wrong current one is refused, the old
   one stops unlocking and the new one unlocks to the same key, with the passkey kept. Then, in

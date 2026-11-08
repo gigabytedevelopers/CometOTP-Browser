@@ -254,6 +254,10 @@ it built, so the release shows as yours, and you upload the zips to the stores.
    - **Firefox Add-ons:** `cometotp-firefox-X.Y.Z.zip`, and the source zip when asked for it, as
      its code was written by a compiler (TypeScript).
 
+   Once a store approves the version, copies installed from it update on their own, Chrome within
+   hours and Firefox within a day. **Check for updates** on the extension's settings page gets it
+   at once.
+
 ## Commit signatures
 
 Every commit carries your own SSH signature and shows GitHub's **Verified** badge. Check before
