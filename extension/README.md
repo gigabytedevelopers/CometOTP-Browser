@@ -51,6 +51,12 @@ for testing.
   site goes, and if its issuer would still offer it there, the site is kept, sealed like the links,
   as one it is hidden on. It stays among the rest, and filling it there again links it once more.
   The settings page lists both, to forget one from there too.
+- **Changes to the links** take turns under a Web Lock that the background and the pages share
+  (`src/fill/links.ts`), as each reads them and writes them back: filling a code in one tab while
+  removing a site in the settings, or removing two sites in quick succession, keeps both changes.
+- **A service the phone removes,** or stops sharing, takes its links and hidden sites with it once
+  the browser accepts a version of the vault without it. Not while the vault has a service this
+  version of the extension cannot read, as that may be the one linked.
 - **A service's first fill** on any site is confirmed too, showing the site's address: a matching
   name proves nothing, as "GitHub" names github.top as well as github.com. Once confirmed, the
   service is linked there and filled with one click.
@@ -94,8 +100,10 @@ while Firefox shows the passkey and permission prompts.
   chooses another, in at most 64 bytes as the pairing code carries it. The phone keeps the name it
   was given: renaming a paired browser happens in CometOTP, in Connected extensions.
 - **Sites:** the sites each service was filled on, where the menu offers it first, and those it
-  was taken off, each with a button to forget it. They are sealed under the local key, so the list
-  needs the extension unlocked.
+  was taken off, each with a button to forget it, and how many there are. Past the first 20 a
+  search finds them, by the service's name or tags or the site's address, and **Show all** lists
+  the rest. Forgetting one takes out its row only and moves focus to the next. They are sealed
+  under the local key, so the list needs the extension unlocked.
 - **Disconnect** (protocol §7.2) deletes the vault on the relay with the read token, then
   everything the pairing kept here (its details, the copy and the sites filled or hidden), even when the
   relay cannot be reached. The phone gets `410` at its next upload and shows the browser as disconnected.

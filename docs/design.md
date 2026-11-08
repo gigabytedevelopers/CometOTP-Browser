@@ -123,9 +123,9 @@ the pairing QR.
   linked to the site is filled only after the person confirms the site's address, since an
   issuer's name also matches look-alike domains such as `github.top`. A service linked or matched
   wrongly can be taken off the site, from the menu or the settings page: its link goes, and a name
-  match is kept hidden there (also encrypted with M). Content scripts only ever receive a code,
-  never a secret. Codes go only into the field the user chose, in the top frame or a same-site
-  frame.
+  match is kept hidden there (also encrypted with M). A service that leaves the vault takes its
+  links and hidden sites with it. Content scripts only ever receive a code, never a secret. Codes
+  go only into the field the user chose, in the top frame or a same-site frame.
 - **Clock:** codes depend on the computer's clock; the extension warns when it differs from the
   relay's `Date` header by more than 30 seconds.
 
