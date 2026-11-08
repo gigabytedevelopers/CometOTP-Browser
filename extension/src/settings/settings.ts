@@ -1,7 +1,7 @@
 // The settings page, which the popup and the browser's own extension menu open in a tab: this
 // browser's pairing (its relay, the name it gives the phone, and Disconnect), the lock (how soon it
 // locks, the password and the passkey), filling codes into sites and the sites each service is
-// linked to, and usage statistics. In a tab,
+// linked to, usage statistics, and updates. In a tab,
 // unlike the popup, Firefox shows the passkey and permission prompts without closing the page.
 // What each part says is in data attributes on the body, which the load test reads
 // (tools/load-test.ts).
@@ -19,6 +19,7 @@ import { thisBrowser } from '../pair/browser-name.js';
 import { browserAllowsUsage, report, requestBrowserUsage, turnUsageOff, turnUsageOn, usageOffered, usageOn } from '../usage/usage.js';
 import { AUTO_LOCK_CHOICES, autoLockText, nameProblem } from './choices.js';
 import { autoLockMinutes, pairingName, setAutoLockMinutes, setPairingName } from './prefs.js';
+import { checkedState, startState, updateText, type UpdateState } from './update.js';
 
 function element<T extends HTMLElement>(id: string): T {
   const found = document.getElementById(id);
@@ -382,6 +383,42 @@ usageOffButton.addEventListener('click', () => {
   void turnUsageOff().then(() => showUsage());
 });
 
+// Updates, sooner than the browser's own schedule (src/settings/update.ts). The page listens for a
+// downloaded update only while it is open, and then restarts the extension to install it at once,
+// as Firefox would if nothing listened.
+const updateStatus = element('update-status');
+const updateCheck = element<HTMLButtonElement>('update-check');
+const updateRestart = element<HTMLButtonElement>('update-restart');
+const version = chrome.runtime.getManifest().version;
+
+function showUpdate(update: UpdateState): void {
+  updateStatus.textContent = updateText(update, version);
+  updateCheck.hidden = update.kind === 'folder' || update.kind === 'installing';
+  updateCheck.disabled = update.kind === 'checking' || update.kind === 'downloading';
+  updateRestart.hidden = update.kind !== 'downloading';
+  document.body.dataset.update = update.kind;
+}
+
+void chrome.management.getSelf().then(
+  (self) => showUpdate(startState(self.installType)),
+  () => showUpdate({ kind: 'idle' }),
+);
+
+updateCheck.addEventListener('click', () => {
+  showUpdate({ kind: 'checking' });
+  void chrome.runtime.requestUpdateCheck().then(
+    (result) => showUpdate(checkedState(result)),
+    (error: unknown) => showUpdate({ kind: 'failed', reason: message(error) }),
+  );
+});
+
+updateRestart.addEventListener('click', () => chrome.runtime.reload());
+
+chrome.runtime.onUpdateAvailable.addListener((details) => {
+  showUpdate({ kind: 'installing', version: details.version });
+  setTimeout(() => chrome.runtime.reload(), 2000);
+});
+
 /** Shows every part as it is now. Run again when the extension locks or unlocks, and when the page comes back into view. */
 async function render(): Promise<void> {
   const view = await state();
@@ -401,5 +438,5 @@ document.addEventListener('visibilitychange', () => {
 onLockChange(() => void render());
 
 passwordStrength.textContent = strengthText('');
-element('version').textContent = `Version ${chrome.runtime.getManifest().version}`;
+element('version').textContent = `Version ${version}`;
 void render();

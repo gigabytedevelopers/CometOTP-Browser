@@ -65,6 +65,7 @@ const EXPECTED = [
   'settings/settings.css',
   'settings/settings.html',
   'settings/settings.js',
+  'settings/update.js',
   'sync/relay.js',
   'sync/store.js',
   'sync/sync.js',

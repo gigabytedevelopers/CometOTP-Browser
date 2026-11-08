@@ -31,6 +31,27 @@ declare namespace chrome.runtime {
   /** Sends a message to the extension's other pages and its background; resolves with the reply. */
   function sendMessage(message: unknown): Promise<unknown>;
 
+  /** What the store said about a newer version: Chromium gives its `version`, Firefox `details.version`. */
+  interface UpdateCheck {
+    status: 'throttled' | 'no_update' | 'update_available';
+    version?: string;
+    details?: { version?: string };
+  }
+
+  /** Asks the store now whether there is a newer version; the browser downloads one that there is. */
+  function requestUpdateCheck(): Promise<UpdateCheck>;
+
+  /** Restarts the extension, which installs an update that was downloaded. */
+  function reload(): void;
+
+  /**
+   * When an update has been downloaded and waits for the extension to restart. While anything
+   * listens, Firefox waits for that restart instead of restarting the extension itself.
+   */
+  const onUpdateAvailable: {
+    addListener(callback: (details: { version: string }) => void): void;
+  };
+
   /** When the browser starts with the extension installed. */
   const onStartup: {
     addListener(callback: () => void): void;
@@ -50,6 +71,16 @@ declare namespace chrome.runtime {
       callback: (message: unknown, sender: MessageSender, sendResponse: (response: unknown) => void) => boolean | undefined | void,
     ): void;
   };
+}
+
+declare namespace chrome.management {
+  interface ExtensionInfo {
+    /** "normal" from a store; "development" when loaded from a folder. */
+    installType: 'admin' | 'development' | 'normal' | 'sideload' | 'other';
+  }
+
+  /** The extension's own details, which need no permission. */
+  function getSelf(): Promise<ExtensionInfo>;
 }
 
 declare namespace chrome.storage {
