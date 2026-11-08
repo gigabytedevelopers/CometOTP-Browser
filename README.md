@@ -31,6 +31,18 @@ computer, even when your phone is not with you.
 cannot take back what it already holds. If a computer with the extension is lost or stolen, remove
 it in CometOTP and reset two-factor authentication on the services it had.
 
+## If Chrome says the extension is not trusted
+
+With Enhanced protection on (Settings → Privacy and security → Security), Chrome may say
+**Proceed with caution** when you install CometOTP from the Chrome Web Store, and **This extension
+is not trusted by Enhanced Safe Browsing** on its card in `chrome://extensions`. That is about the
+publisher, not the extension: Google trusts extensions once their publisher has a few months of
+good standing in the store, and CometOTP's publisher is new there. It does not stop the extension
+from working, and it should go away on its own as that record builds up; no change to the
+extension can remove it sooner. Meanwhile the code is open, and each release is built from a
+signed tag, so that a build of the tag on any machine gives the same bytes
+([how releases are made](.github/RELEASING.md)).
+
 ## Documentation
 
 - **[Design](docs/design.md):** what is shared, pairing, syncing, the extension's lock, unpairing,

@@ -284,8 +284,11 @@ adds it:
 | `scripting` | To run the content script for filling codes, once access to sites is granted. |
 | `storage` | For `storage.session`, which holds the local key in memory while unlocked. |
 
-None shows a warning when installing. The relay needs no host permission: it allows any
-origin (protocol §6.1). Neither does Google Analytics' endpoint, for usage statistics.
+None shows a warning when installing. Chrome with Enhanced protection may still say that the
+extension is not trusted, but that is about the publisher's record in the Chrome Web Store, not a
+permission ([README](../README.md#if-chrome-says-the-extension-is-not-trusted)). The relay needs
+no host permission: it allows any origin (protocol §6.1). Neither does Google Analytics' endpoint,
+for usage statistics.
 
 Access to sites is an optional host permission (`OPTIONAL_HOSTS`): https sites, and http on this
 computer for testing. The extension asks for it only when someone turns on filling codes into
