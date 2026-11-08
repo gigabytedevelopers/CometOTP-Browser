@@ -267,6 +267,8 @@ async function exerciseSettings(evaluate: Evaluate, open: (path: string) => Prom
   await open('settings/settings.html');
   await attribute(evaluate, 'the settings page', 'document.body.dataset.autoLock', (v) => v === '15');
   await attribute(evaluate, 'usage statistics to be off', 'document.body.dataset.usage', (v) => v === (API_SECRET ? 'off' : 'unavailable'));
+  // Loaded from a folder, the build has no store to update from, and says so.
+  await attribute(evaluate, 'the settings page to say this copy cannot update itself', 'document.body.dataset.update', (v) => v === 'folder');
   if ((await evaluate(readRecord('usage-stats'))) !== 'null') throw new Error('Usage statistics have an id although nobody turned them on');
   const passkey = await evaluate('document.body.dataset.passkey');
   await evaluate(select(5));
