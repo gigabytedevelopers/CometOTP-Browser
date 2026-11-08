@@ -33,6 +33,12 @@ export interface Message {
   body: Uint8Array;
 }
 
+/** What became of an upload: stored, or why not. */
+export type PutResult =
+  | { status: 'stored' }
+  | { status: 'stale'; version: number }
+  | { status: 'gone' | 'not_found' };
+
 export interface HousekeepingResult {
   vaultsDeleted: number;
   tombstonesDropped: number;
@@ -169,14 +175,17 @@ export class RelayStore {
     });
   }
 
-  /** Stores [blob] as [version] unless the stored version is as high; returns the stored version then. */
-  putBlob(id: string, version: number, blob: Uint8Array): { stored: boolean; version: number } {
+  /**
+   * Stores [blob] as [version] unless the stored version is as high ('stale', with the stored
+   * version). The vault may have been deleted since the caller found it: 'gone' then.
+   */
+  putBlob(id: string, version: number, blob: Uint8Array): PutResult {
     return this.transaction(() => {
       const current = this.getVault(id);
-      if (!current) throw new Error('No such vault');
-      if (version <= current.version) return { stored: false, version: current.version };
+      if (!current) return { status: this.isDeletedVault(id) ? 'gone' : 'not_found' };
+      if (version <= current.version) return { status: 'stale', version: current.version };
       this.statements.putBlob!.run(version, blob, id);
-      return { stored: true, version };
+      return { status: 'stored' };
     });
   }
 

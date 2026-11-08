@@ -51,6 +51,7 @@ class HttpError extends Error {
 const badRequest = () => new HttpError(400, 'bad_request');
 const unauthorized = () => new HttpError(401, 'unauthorized');
 const notFound = () => new HttpError(404, 'not_found');
+const gone = () => new HttpError(410, 'gone');
 
 function send(res: ServerResponse, status: number, body?: unknown, headers: Record<string, string> = {}): void {
   if (res.headersSent || res.destroyed) return;
@@ -294,7 +295,7 @@ export function createRelay(config: RelayConfig, store: RelayStore, now: () => n
   }
 
   function existingVault(id: string) {
-    if (store.isDeletedVault(id)) throw new HttpError(410, 'gone');
+    if (store.isDeletedVault(id)) throw gone();
     const vault = store.getVault(id);
     if (!vault) throw notFound();
     return vault;
@@ -312,8 +313,11 @@ export function createRelay(config: RelayConfig, store: RelayStore, now: () => n
       if (error instanceof ProtocolError) throw badRequest();
       throw error;
     }
+    // The vault was checked before its blob arrived, and may have been deleted since.
     const result = store.putBlob(id, version, blob);
-    if (!result.stored) throw new HttpError(409, 'stale_version', { version: result.version });
+    if (result.status === 'gone') throw gone();
+    if (result.status === 'not_found') throw notFound();
+    if (result.status === 'stale') throw new HttpError(409, 'stale_version', { version: result.version });
     const lastRead = store.getVault(id)?.lastReadDay ?? null;
     send(res, 200, { version, last_read: lastRead === null ? null : dayString(lastRead) });
   }

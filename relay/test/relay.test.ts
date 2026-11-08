@@ -2,7 +2,7 @@
 // tests move. Blobs are real vaults sealed with @cometotp/protocol.
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
-import { createServer, type Server } from 'node:http';
+import { createServer, request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, beforeEach, describe, it } from 'node:test';
 
@@ -62,22 +62,58 @@ interface Options {
   ip?: string;
 }
 
-async function call(method: string, path: string, options: Options = {}) {
+function prepare(options: Options): { headers: Record<string, string>; body?: Uint8Array<ArrayBuffer> } {
   const headers: Record<string, string> = { 'X-Forwarded-For': options.ip ?? '203.0.113.1', ...options.headers };
   if (options.token) headers.Authorization = `Bearer ${options.token}`;
-  let body: string | Uint8Array<ArrayBuffer> | undefined;
   if (options.json !== undefined) {
     headers['Content-Type'] = 'application/json';
-    body = JSON.stringify(options.json);
-  } else if (options.body) {
-    headers['Content-Type'] = 'application/octet-stream';
-    body = new Uint8Array(options.body);
+    return { headers, body: new Uint8Array(Buffer.from(JSON.stringify(options.json))) };
   }
+  if (options.body) {
+    headers['Content-Type'] = 'application/octet-stream';
+    return { headers, body: new Uint8Array(options.body) };
+  }
+  return { headers };
+}
+
+async function call(method: string, path: string, options: Options = {}) {
+  const { headers, body } = prepare(options);
   const response = await fetch(base + path, { method, headers, body });
   const raw = new Uint8Array(await response.arrayBuffer());
   const text = Buffer.from(raw).toString('utf8');
   const isJson = response.headers.get('content-type') === 'application/json';
   return { status: response.status, headers: response.headers, raw, json: isJson ? JSON.parse(text) : undefined };
+}
+
+/**
+ * Like call, but sends half the body, runs [meanwhile] while the relay waits for the rest, and
+ * only then sends it: for what changes between a request's checks and its body arriving.
+ */
+function callInterrupted(method: string, path: string, options: Options, meanwhile: () => unknown) {
+  const { headers, body = new Uint8Array(0) } = prepare(options);
+  headers['Content-Length'] = String(body.length);
+  const half = body.length >> 1;
+  return new Promise<{ status: number; json: unknown }>((resolve, reject) => {
+    const req = request(base + path, { method, headers }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (chunk: Buffer) => chunks.push(chunk));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        resolve({ status: res.statusCode ?? 0, json: res.headers['content-type'] === 'application/json' ? JSON.parse(text) : undefined });
+      });
+    });
+    req.on('error', reject);
+    req.write(body.subarray(0, half));
+    setTimeout(async () => {
+      try {
+        await meanwhile();
+        req.end(body.subarray(half));
+      } catch (error) {
+        req.destroy();
+        reject(error);
+      }
+    }, 50);
+  });
 }
 
 const id16 = () => toBase64Url(randomBytes(16));
@@ -327,6 +363,14 @@ describe('relay', () => {
         { error: 'exists' },
       );
       assert.equal((await call('GET', `/v1/vault/${id16()}`, { token: v.read })).status, 404);
+    });
+
+    it('answers gone to an upload whose vault is deleted while it arrives', async () => {
+      const v = await vault();
+      const upload = await callInterrupted('PUT', `/v1/vault/${v.id}`, { token: v.write, body: await blob(v, 1) }, async () => {
+        assert.equal((await call('DELETE', `/v1/vault/${v.id}`, { token: v.read })).status, 204);
+      });
+      assert.deepEqual(upload, { status: 410, json: { error: 'gone' } });
     });
 
     it('keeps only token hashes', async () => {
