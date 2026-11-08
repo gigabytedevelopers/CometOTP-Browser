@@ -31,7 +31,8 @@ for testing.
   whose name, label or placeholder says so ("otp", "MFA code", "Authentication code"…), or say
   "code" and take digits. Codes sent by text or email, recovery codes, coupons, postal codes and
   card codes are left alone, as are fields that say they are something else. A row of five to eight
-  one-character boxes counts too, and gets one character per box.
+  one-character boxes counts too, unless one of them says it is something else (the boxes of a
+  date of birth, say), and gets one character per box.
 - **The button** appears at the end of such a field while it is focused (`src/fill/field.ts`). It
   and the menu sit in a closed shadow root, styled through the CSS object model, so page styles
   and strict content security policies leave them alone. Only a person's click opens the menu.
@@ -61,7 +62,10 @@ every 15 minutes, and each time the popup opens. Each request carries the versio
 unchanged vault costs one small answer (`304`). A newer version replaces the copy only if its
 version is higher than the one accepted, it opens with the vault key, and its payload is one this
 extension reads. The vault key is under the lock, so a version downloaded while locked is kept
-aside, still sealed, and checked at the next unlock.
+aside, still sealed, and checked at the next unlock. A download larger than a vault can be
+(1,044,520 bytes), or of a length no vault has, is refused before anything is kept, and reading
+stops there. The background and the popup may both be checking a version: the copy and the
+version accepted are written together, and only over a lower version.
 
 What the popup says when something is wrong:
 
@@ -70,7 +74,7 @@ What the popup says when something is wrong:
 | The relay sent an older version than the one accepted | It was ignored, and the relay may be holding back updates. |
 | The vault does not open, or is not a vault | It was ignored; the codes are the ones from before. |
 | The payload is in a newer format | Update the extension. |
-| The relay no longer knows this browser (`401`, `404`) | Remove it in CometOTP, then pair again. The copy is kept. |
+| The relay no longer knows this browser (`401`, `404`) | Remove it in CometOTP, then disconnect and pair again, which **Disconnect and pair again** does. The copy is kept until then. |
 | The relay cannot be reached for 30 minutes | The codes are from the last copy downloaded. |
 | The phone removed this browser (`410`) | It was disconnected: everything the pairing kept is deleted. |
 
@@ -87,8 +91,9 @@ while Firefox shows the passkey and permission prompts.
 - **Disconnect** (protocol §7.2) deletes the vault on the relay with the read token, then
   everything the pairing kept here (its details, the copy and the sites filled), even when the
   relay cannot be reached. The phone gets `410` at its next upload and shows the browser as disconnected.
-  If the relay could not be reached, the page says to remove the browser on the phone too. The
-  password and the settings stay, to pair again.
+  If the relay could not be reached, the page says to remove the browser on the phone too. A relay
+  that no longer knows the browser (`401`, `404`) has nothing left to delete, so that counts as
+  done. The password and the settings stay, to pair again.
 - **Lock after** 1, 5, 15 (the default), 30 or 60 minutes, or 4 hours without input. The
   background applies it each time it starts, and the page at once.
 - **Change the password,** given the current one. M stays the same and is sealed again under a key
@@ -132,11 +137,16 @@ use your phone. It does the browser's side of protocol §3.4 (`src/pair/pairing.
    phone's name: **My phone shows the same code** or **Cancel**. It watches for the phone
    cancelling meanwhile.
 3. On the confirm, it waits for the phone to send the vault's details. It keeps them as
-   protocol §8 says, then says done and downloads the vault, checking that it opens.
+   protocol §8 says, then says done (up to three times, a second apart, while the relay cannot be
+   reached) and downloads the vault, checking that it opens.
 
 Every failure says what happened and what to do: the relay cannot be reached, someone cancelled
 on either side, it took too long, or a message could not be verified, which may mean someone else
-scanned the code. Nothing is kept unless the pairing finishes.
+scanned the code. Nothing is kept unless the pairing finishes: if done cannot be said, the phone
+cancels, and the details kept are deleted again.
+
+A browser that is paired already is not paired again: the page says with which phone, and offers
+**Disconnect and pair again**, for a browser the relay no longer knows, say.
 
 **The relay** is the official one, `https://relay.gigabytedevelopers.com`, unless you choose your
 own under the code ([running your own](../docs/self-hosting.md)). Its address goes to the phone in
@@ -160,12 +170,15 @@ The extension keeps everything private sealed under a random 32-byte local key M
 - **Locking** takes M out of memory: after 15 minutes without input (or the time chosen in the
   settings), when the computer locks
   (Firefox does not report this, so there the idle time applies), when the browser quits, and
-  with **Lock now**.
+  with **Lock now**. An open popup drops its codes at once, wherever the lock came from, and the
+  settings page shows what it can while locked.
 - **Setup** asks for at least 10 characters and a password the meter rates at least fair. The
   meter is a rough estimate (`src/lock/strength.ts`): it catches common passwords and their
   usual variants, repeats and runs.
 - **Forgot the password?** **Reset the extension** forgets it and everything the extension keeps.
-  The phone keeps everything, so the browser is paired again afterwards.
+  First it deletes the vault on the relay, as Disconnect does, with the read token, which is
+  outside the lock; it waits five seconds at most for that. The phone keeps everything, so the
+  browser is paired again afterwards.
 - **A passkey** can unlock instead of the password: Touch ID, Windows Hello, a phone or a security
   key (`src/lock/passkey.ts`). The extension asks it, with the person verified, for its WebAuthn
   PRF output on a fixed input, and seals a second copy of M under a key from that output (HKDF).
@@ -279,7 +292,13 @@ npm run load-test --workspace @cometotp/extension
   pairing code can carry), what usage statistics may send and how, a new password around the same
   local key, and pairing. Pairing runs against a relay kept in memory and a phone that does its
   side with the protocol package: the happy path, a code that expires unanswered, and every way it
-  can fail.
+  can fail. The lock and the downloads run over an IndexedDB and a storage.session kept in memory
+  (`test/fake-browser.ts`), with a relay answering in place of `fetch`: setting up, unlocking, a new
+  password, a passkey and a reset; a version kept aside while locked, one with a made-up number,
+  rollbacks, `401`, `404` and `410`, downloads too large to be a vault, and Disconnect. The same
+  IndexedDB can hold a write back, as if what made it were slow, to check changes that overlap: a
+  passkey removed during a password change, and the background and the popup accepting versions
+  at once.
 - **Package check** (`tools/check.ts`), the extension's lint. It checks that the manifest asks for no
   permission outside `ALLOWED_PERMISSIONS`, for access to sites only as `OPTIONAL_HOSTS`, exposes
   to pages only `WEB_ACCESSIBLE`, keeps the content security policy, and names only files that
@@ -304,8 +323,10 @@ npm run load-test --workspace @cometotp/extension
   six digits, uploads a vault and finishes. The page must end paired with that vault's service,
   and the vault key must be kept sealed. The popup must then show that service's code as the
   protocol package computes it. The phone adds a Steam service and uploads again, and the popup
-  must show both codes. Last, the phone deletes the vault, and the popup must say it removed the
-  browser, with the pairing and the copy gone. Before that, it fills codes into a page it serves
+  must show both codes. When the local key leaves storage.session, as when the background locks,
+  the open popup must show its lock with no codes left. Last, the phone deletes the vault, and the
+  popup must say it removed the browser, with the pairing and the copy gone. Before that, it
+  fills codes into a page it serves
   under a strict content security policy: the code field gets the button and the email field does
   not; the menu finds the service by search and, once the site is confirmed, fills the field with
   its code; six one-digit
