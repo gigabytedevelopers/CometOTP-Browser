@@ -79,9 +79,12 @@
         <button id="filling-on" class="secondary" type="button">Turn on</button>
         <button id="filling-off" class="link" type="button" hidden>Turn off</button>
         <div id="sites" hidden>
-          <h3>Sites</h3>
+          <h3 id="sites-title" tabindex="-1">Sites</h3>
           <p id="sites-status" class="hint"></p>
+          <input id="sites-search" type="search" placeholder="Find a site or service" aria-label="Find a site or service" aria-controls="sites-list" autocomplete="off" spellcheck="false" hidden>
+          <p id="sites-found" class="hint" role="status"></p>
           <ul id="sites-list" class="sites" aria-label="Sites your services are linked to"></ul>
+          <button id="sites-all" class="link" type="button" hidden></button>
         </div>
       </section>
 

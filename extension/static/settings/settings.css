@@ -75,6 +75,13 @@ form button {
 }
 
 /* The sites each service is linked to or hidden on, each with a button to forget it. */
+#sites-search {
+  width: 100%;
+  max-width: 360px;
+  box-sizing: border-box;
+  margin: 8px 0 2px;
+}
+
 .sites,
 .sites ul {
   list-style: none;

@@ -5,8 +5,6 @@
 // unlike the popup, Firefox shows the passkey and permission prompts without closing the page.
 // What each part says is in data attributes on the body, which the load test reads
 // (tools/load-test.ts).
-import type { Bytes, Service } from '@cometotp/protocol';
-
 import { hasSiteAccess, removeSiteAccess, requestSiteAccess } from '../fill/access.js';
 import { forgetLink, readHidden, readLinks, unhide } from '../fill/links.js';
 import { addPasskey, changePassword, localKey, onLockChange, passkeyCredential, removePasskey, state, type LockState } from '../lock/lock.js';
@@ -19,6 +17,7 @@ import { thisBrowser } from '../pair/browser-name.js';
 import { browserAllowsUsage, report, requestBrowserUsage, turnUsageOff, turnUsageOn, usageOffered, usageOn } from '../usage/usage.js';
 import { AUTO_LOCK_CHOICES, autoLockText, nameProblem } from './choices.js';
 import { autoLockMinutes, pairingName, setAutoLockMinutes, setPairingName } from './prefs.js';
+import { FIRST_SITES, findSites, firstSites, siteCount, siteServices, withoutSite, type SiteKind, type SiteService } from './site-list.js';
 import { checkedState, startState, updateText, type UpdateState } from './update.js';
 
 function element<T extends HTMLElement>(id: string): T {
@@ -277,25 +276,74 @@ fillingOff.addEventListener('click', () => {
 // The sites each service was filled on, where the menu offers it first, and those the person took
 // it off, where its name no longer offers it. A wrong one is forgotten here, as well as from the
 // menu on the site itself. They are sealed under the local key, so this needs CometOTP unlocked.
+// There can be many, so past the first few a search finds them, and a button shows them all.
+// Forgetting one changes its row only: the rest stay where they were, and focus moves to the next.
 const sitesPanel = element('sites');
+const sitesTitle = element('sites-title');
 const sitesStatus = element('sites-status');
+const sitesSearch = element<HTMLInputElement>('sites-search');
+const sitesFound = element('sites-found');
 const sitesList = element<HTMLUListElement>('sites-list');
+const sitesAll = element<HTMLButtonElement>('sites-all');
 
-/** Runs `change` with the local key, if still unlocked, then shows the page again. */
-function withKey(change: (key: Bytes) => Promise<void>): void {
-  void localKey()
-    .then((key) => (key ? change(key) : undefined))
-    .then(() => render());
+/** The services with sites, as last read; and whether the person asked to see all of them. */
+let siteList: SiteService[] = [];
+let allSites = false;
+
+const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
+const siteButtons = () => [...sitesList.querySelectorAll<HTMLButtonElement>('button')];
+
+/**
+ * Shows `siteList` as the search and Show all have it. Focus moves to the row button at `focus`,
+ * or the last one, if given; otherwise a row button that had it keeps it, as long as its row stays.
+ */
+function drawSites(focus?: number): void {
+  const active = siteButtons().find((button) => button === document.activeElement);
+  const index = focus ?? (active ? siteButtons().indexOf(active) : -1);
+  const total = siteCount(siteList);
+  const query = sitesSearch.value.trim();
+  const found = findSites(siteList, query);
+  const shown = allSites ? found : firstSites(found, FIRST_SITES);
+  sitesList.replaceChildren(...shown.map(siteRow));
+
+  sitesStatus.textContent = total
+    ? `${plural(total, 'site', 'sites')} for ${plural(siteList.length, 'service', 'services')}. The CometOTP button in code fields offers a service first on the sites you filled it on, and not on sites you took it off. Remove a site that is wrong.`
+    : 'No service is linked to a site yet. When you fill a code on a site, its service is offered there first from then on.';
+  sitesSearch.hidden = total <= FIRST_SITES && !query;
+  const matched = siteCount(found);
+  sitesFound.textContent = !query ? '' : matched ? `${matched} of ${plural(total, 'site matches', 'sites match')}.` : 'No site or service matches your search.';
+  sitesAll.hidden = siteCount(shown) === matched;
+  sitesAll.textContent = `Show all ${matched} sites`;
+  document.body.dataset.sites = String(total);
+
+  if (index < 0) return;
+  const buttons = siteButtons();
+  const kept = focus === undefined ? buttons.find((button) => button.dataset.site === active?.dataset.site) : undefined;
+  (kept ?? buttons[Math.min(index, buttons.length - 1)] ?? (sitesSearch.hidden ? sitesTitle : sitesSearch)).focus();
 }
 
-function sitesRow(service: Service, filled: string[], hidden: string[]): HTMLLIElement {
+/** Forgets `site` for the row's service, then takes it out of the list. */
+function forgetSite(button: HTMLButtonElement, id: string, kind: SiteKind, site: string): void {
+  const index = siteButtons().indexOf(button);
+  button.disabled = true;
+  void (async () => {
+    const key = await localKey();
+    // Locked meanwhile: the page shows that instead.
+    if (!key) return render();
+    await (kind === 'filled' ? forgetLink : unhide)(key, id, site);
+    siteList = withoutSite(siteList, id, kind, site);
+    drawSites(index);
+  })().catch(() => render());
+}
+
+function siteRow({ service, filled, hidden }: SiteService): HTMLLIElement {
   const item = document.createElement('li');
   const name = document.createElement('p');
   name.className = 'site-service';
   name.textContent = service.issuer && service.label ? `${service.issuer} (${service.label})` : service.issuer || service.label;
-  const hosts = document.createElement('ul');
-  const host = (text: string, action: string, label: string, change: (key: Bytes) => Promise<void>) => {
-    const line = document.createElement('li');
+  const sites = document.createElement('ul');
+  const line = (kind: SiteKind, site: string, text: string, action: string, label: string) => {
+    const row = document.createElement('li');
     const what = document.createElement('span');
     what.textContent = text;
     const button = document.createElement('button');
@@ -303,43 +351,45 @@ function sitesRow(service: Service, filled: string[], hidden: string[]): HTMLLIE
     button.className = 'link';
     button.textContent = action;
     button.setAttribute('aria-label', label);
-    button.addEventListener('click', () => withKey(change));
-    line.append(what, button);
-    hosts.append(line);
+    button.dataset.site = JSON.stringify([kind, service.id, site]);
+    button.addEventListener('click', () => forgetSite(button, service.id, kind, site));
+    row.append(what, button);
+    sites.append(row);
   };
-  for (const site of filled) {
-    host(`Filled on ${site}`, 'Remove', `Stop offering ${name.textContent} first on ${site}`, (key) => forgetLink(key, service.id, site));
-  }
-  for (const site of hidden) {
-    host(`Not offered on ${site}`, 'Offer again', `Offer ${name.textContent} on ${site} again`, (key) => unhide(key, service.id, site));
-  }
-  item.append(name, hosts);
+  for (const site of filled) line('filled', site, `Filled on ${site}`, 'Remove', `Stop offering ${name.textContent} first on ${site}`);
+  for (const site of hidden) line('hidden', site, `Not offered on ${site}`, 'Offer again', `Offer ${name.textContent} on ${site} again`);
+  item.append(name, sites);
   return item;
 }
+
+sitesSearch.addEventListener('input', () => drawSites());
+sitesAll.addEventListener('click', () => {
+  // Focus goes to the first site it shows.
+  const shown = siteButtons().length;
+  allSites = true;
+  drawSites(shown);
+});
 
 async function showSites(view: LockState): Promise<void> {
   const record = await pairingRecord();
   const key = record && view === 'unlocked' ? await localKey() : null;
   sitesPanel.hidden = !record;
-  sitesList.replaceChildren();
   if (!record || !key) {
+    // Nothing of the list stays, the search included, as it may name a site.
+    siteList = [];
+    allSites = false;
+    sitesSearch.value = '';
+    sitesList.replaceChildren();
+    sitesSearch.hidden = sitesAll.hidden = true;
+    sitesFound.textContent = '';
     sitesStatus.textContent = 'Unlock CometOTP from its button in the toolbar to see the sites your services are linked to.';
     document.body.dataset.sites = record ? 'locked' : 'unpaired';
     return;
   }
+  // Read again, then shown at once: the list is not emptied while it waits.
   const [data, links, hidden] = await Promise.all([services(), readLinks(key), readHidden(key)]);
-  let count = 0;
-  for (const service of data?.payload.services ?? []) {
-    const filled = links[service.id] ?? [];
-    const off = hidden[service.id] ?? [];
-    if (!filled.length && !off.length) continue;
-    count += filled.length + off.length;
-    sitesList.append(sitesRow(service, filled, off));
-  }
-  sitesStatus.textContent = count
-    ? 'The CometOTP button in code fields offers a service first on the sites you filled it on, and not on sites you took it off. Remove a site that is wrong.'
-    : 'No service is linked to a site yet. When you fill a code on a site, its service is offered there first from then on.';
-  document.body.dataset.sites = String(count);
+  siteList = siteServices(data?.payload.services ?? [], links, hidden);
+  drawSites();
 }
 
 // Usage statistics, off until the person turns them on here (docs/privacy.md). In Firefox, its own
