@@ -145,18 +145,38 @@ jobs:
     env:
       VERSION: ${{ needs.check.outputs.version }}
     steps:
-      - name: Join both architectures under the version, its minor version and latest
+      # X.Y and latest name the newest release of their minor version and of all, so a release
+      # older than one already out, such as a fix to an earlier minor version, leaves them be.
+      - name: Join both architectures under the version, and its minor version and latest if newest
         id: join
         env:
+          GH_TOKEN: ${{ github.token }}
           TOKEN: ${{ github.token }}
           ACTOR: ${{ github.actor }}
         run: |
+          # Every relay-vX.Y.Z tag is a release, this one included.
+          released=$(gh api --paginate "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/relay-v" \
+            --jq '.[].ref | ltrimstr("refs/tags/relay-v") | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))')
+          released+=$'\n'"$VERSION"
+          newest() { sort --version-sort | tail -n 1; }
+          minor="${VERSION%.*}"
+          tags=(--tag "$IMAGE:$VERSION")
+          if [ "$(awk -F. -v minor="$minor" '$1 "." $2 == minor' <<< "$released" | newest)" = "$VERSION" ]; then
+            tags+=(--tag "$IMAGE:$minor")
+          else
+            echo "::notice::$IMAGE:$minor stays on a newer $minor release"
+          fi
+          if [ "$(newest <<< "$released")" = "$VERSION" ]; then
+            tags+=(--tag "$IMAGE:latest")
+          else
+            echo "::notice::$IMAGE:latest stays on a newer release"
+          fi
+
           printf '%s' "$TOKEN" | docker login ghcr.io --username "$ACTOR" --password-stdin
           # Right after a push, the registry can take a few seconds to serve the new manifests by
           # digest ("not found"), so the join is tried a few times before giving up.
           for attempt in 1 2 3 4 5; do
-            if docker buildx imagetools create \
-                --tag "$IMAGE:$VERSION" --tag "$IMAGE:${VERSION%.*}" --tag "$IMAGE:latest" \
+            if docker buildx imagetools create "${tags[@]}" \
                 "$IMAGE:$VERSION-amd64" "$IMAGE:$VERSION-arm64"; then
               break
             fi

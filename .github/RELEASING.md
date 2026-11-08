@@ -102,7 +102,8 @@ The relay's image is published to `ghcr.io/gigabytedevelopers/cometotp-relay` by
 The workflow refuses a tag that is not annotated, whose signature GitHub cannot verify, whose
 version is not the one in `relay/package.json`, or whose commit is not on `main`. It then builds
 the image natively for `amd64` and `arm64`, pushes each as `X.Y.Z-amd64` and `X.Y.Z-arm64`, and
-joins them under `X.Y.Z`, `X.Y` and `latest`.
+joins them under `X.Y.Z`. `X.Y` and `latest` move to it only when it is the highest `relay-v*` tag
+of its minor version, and of all: a fix to an older minor version leaves `latest` where it is.
 
 The first time, the package is private: in its settings on GitHub, change its visibility to public
 so that anyone can pull it, and check that it is linked to this repository.
