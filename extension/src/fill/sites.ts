@@ -1,9 +1,11 @@
 // Which sites codes may be filled on, and which services to offer there (design §4, Filling):
 // services linked to the site first, then those whose issuer names it. A service linked to other
-// sites is offered only on those, so a page elsewhere cannot have it listed; the person can still
-// search for it, and is asked first. A name proves nothing about a site, as "GitHub" names
+// sites is offered only on those, so a page elsewhere cannot have it offered; the person can still
+// pick it from the rest, and is asked first. A name proves nothing about a site, as "GitHub" names
 // github.top as well as github.com, so a service's first fill on any site is asked about too
-// (src/fill/menu.ts). Nothing here touches a page (test/sites.test.ts).
+// (src/fill/menu.ts). A service offered on a site where it does not belong can be taken off it:
+// its link there goes, and if its name would still offer it, the site is kept as hidden for it.
+// Nothing here touches a page (test/sites.test.ts).
 
 /**
  * The sites the content script may run on, once the person allows it: https, and http on this
@@ -11,7 +13,7 @@
  */
 export const FILL_SITES: readonly string[] = ['https://*/*', 'http://localhost/*', 'http://127.0.0.1/*'];
 
-/** For each service id, the hosts it was filled on. */
+/** For each service id, some hosts: those it was filled on, or those it is hidden on. */
 export type Links = Record<string, string[]>;
 
 /**
@@ -78,18 +80,23 @@ export function issuerNames(issuer: string, host: string): boolean {
 export interface Offer<S> {
   /** Services filled on this host (or a host it is within) before. */
   linked: S[];
-  /** Services linked nowhere, whose issuer names this host. */
+  /** Services linked nowhere and not hidden here, whose issuer names this host. */
   matching: S[];
-  /** The rest, found by searching. */
+  /** The rest, listed below the others. */
   others: S[];
 }
 
-export function offer<S extends { id: string; issuer: string }>(services: S[], links: Links, host: string): Offer<S> {
+/** Whether one of `hosts` is `host` or a host it is within. */
+function covers(hosts: readonly string[] | undefined, host: string): boolean {
+  return (hosts ?? []).some((outer) => within(host, outer));
+}
+
+export function offer<S extends { id: string; issuer: string }>(services: S[], links: Links, host: string, hidden: Links = {}): Offer<S> {
   const result: Offer<S> = { linked: [], matching: [], others: [] };
   for (const service of services) {
     const hosts = links[service.id] ?? [];
-    if (hosts.some((linked) => within(host, linked))) result.linked.push(service);
-    else if (!hosts.length && issuerNames(service.issuer, host)) result.matching.push(service);
+    if (covers(hosts, host)) result.linked.push(service);
+    else if (!hosts.length && !covers(hidden[service.id], host) && issuerNames(service.issuer, host)) result.matching.push(service);
     else result.others.push(service);
   }
   return result;
@@ -98,5 +105,47 @@ export function offer<S extends { id: string; issuer: string }>(services: S[], l
 /** The hosts a service is linked to, if it is linked elsewhere and not to this host. */
 export function linkedElsewhere(service: { id: string }, links: Links, host: string): string[] {
   const hosts = links[service.id] ?? [];
-  return hosts.some((linked) => within(host, linked)) ? [] : hosts;
+  return covers(hosts, host) ? [] : hosts;
+}
+
+/** `links` without the hosts of service `id` that `drop` picks, and without the service once it has none. */
+function without(links: Links, id: string, drop: (host: string) => boolean): Links {
+  const kept = (links[id] ?? []).filter((host) => !drop(host));
+  const rest = { ...links };
+  delete rest[id];
+  if (kept.length) rest[id] = kept;
+  return rest;
+}
+
+/** `links` with `host` added to service `id`, unless it has it already. */
+function adding(links: Links, id: string, host: string): Links {
+  const hosts = links[id] ?? [];
+  return hosts.includes(host) ? links : { ...links, [id]: [...hosts, host] };
+}
+
+/**
+ * The links and hidden sites once `service` is filled on `host`: linked there, and no longer
+ * hidden on a host that overlaps it, as filling it shows that it belongs.
+ */
+export function linkToSite(service: { id: string }, links: Links, hidden: Links, host: string): { links: Links; hidden: Links } {
+  return {
+    links: adding(links, service.id, host),
+    hidden: without(hidden, service.id, (other) => within(host, other) || within(other, host)),
+  };
+}
+
+/**
+ * The links and hidden sites once the person takes `service` off what the menu offers on `host`:
+ * its links that offer it there go, and if its issuer would still offer it there, `host` is kept as
+ * hidden for it. Anywhere else it is offered as before.
+ */
+export function removeFromSite(service: { id: string; issuer: string }, links: Links, hidden: Links, host: string): { links: Links; hidden: Links } {
+  const unlinked = without(links, service.id, (linked) => within(host, linked));
+  const named = !unlinked[service.id] && issuerNames(service.issuer, host) && !covers(hidden[service.id], host);
+  return { links: unlinked, hidden: named ? adding(hidden, service.id, host) : hidden };
+}
+
+/** `links` without `host` for service `id`: a link, or a hidden site, forgotten on the settings page. */
+export function forgetHost(links: Links, id: string, host: string): Links {
+  return without(links, id, (other) => other === host);
 }

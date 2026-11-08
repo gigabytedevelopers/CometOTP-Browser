@@ -1,25 +1,62 @@
-// Which sites each service was filled on, so the menu offers it there first (design §4). Sealed
-// under the local key M like everything private: the sites someone signs in to are theirs. Links
-// go with the pairing: forgetPairing deletes them.
+// Which sites each service was filled on, so the menu offers it there first, and the sites the
+// person took it off, where its name would otherwise offer it (design §4). Sealed under the local
+// key M like everything private: the sites someone signs in to are theirs. Both go with the
+// pairing: forgetPairing deletes them.
 import { fromUtf8, utf8, type Bytes } from '@cometotp/protocol';
 
 import { openPrivate, sealPrivate, type Sealed } from '../lock/crypto.js';
 import { getRecord, putRecord } from '../lock/storage.js';
-import type { Links } from './sites.js';
+import { forgetHost, linkToSite, removeFromSite, type Links } from './sites.js';
 
 export const LINKS = 'site-links';
+export const HIDDEN = 'site-hidden';
 
-export async function readLinks(localKey: Bytes): Promise<Links> {
-  const sealed = (await getRecord(LINKS)) as Sealed | undefined;
+async function read(localKey: Bytes, name: string): Promise<Links> {
+  const sealed = (await getRecord(name)) as Sealed | undefined;
   if (!sealed) return {};
-  return JSON.parse(fromUtf8(await openPrivate(localKey, LINKS, sealed))) as Links;
+  return JSON.parse(fromUtf8(await openPrivate(localKey, name, sealed))) as Links;
 }
 
-/** Links `service` to `host`, unless it already is. */
+async function write(localKey: Bytes, name: string, links: Links): Promise<void> {
+  await putRecord(name, await sealPrivate(localKey, name, utf8(JSON.stringify(links))));
+}
+
+export function readLinks(localKey: Bytes): Promise<Links> {
+  return read(localKey, LINKS);
+}
+
+export function readHidden(localKey: Bytes): Promise<Links> {
+  return read(localKey, HIDDEN);
+}
+
+/** Writes `next` where it differs from what was read. */
+async function update(localKey: Bytes, before: { links: Links; hidden: Links }, next: { links: Links; hidden: Links }): Promise<void> {
+  if (JSON.stringify(next.links) !== JSON.stringify(before.links)) await write(localKey, LINKS, next.links);
+  if (JSON.stringify(next.hidden) !== JSON.stringify(before.hidden)) await write(localKey, HIDDEN, next.hidden);
+}
+
+/** Links `service` to `host`, unless it already is, and stops hiding it there. */
 export async function addLink(localKey: Bytes, service: string, host: string): Promise<void> {
+  const before = { links: await readLinks(localKey), hidden: await readHidden(localKey) };
+  await update(localKey, before, linkToSite({ id: service }, before.links, before.hidden, host));
+}
+
+/** Takes `service` off what the menu offers on `host` (src/fill/sites.ts, removeFromSite). */
+export async function removeLink(localKey: Bytes, service: { id: string; issuer: string }, host: string): Promise<void> {
+  const before = { links: await readLinks(localKey), hidden: await readHidden(localKey) };
+  await update(localKey, before, removeFromSite(service, before.links, before.hidden, host));
+}
+
+/** Forgets that `service` was filled on `host`, from the settings page. */
+export async function forgetLink(localKey: Bytes, service: string, host: string): Promise<void> {
   const links = await readLinks(localKey);
-  const hosts = links[service] ?? [];
-  if (hosts.includes(host)) return;
-  links[service] = [...hosts, host];
-  await putRecord(LINKS, await sealPrivate(localKey, LINKS, utf8(JSON.stringify(links))));
+  const next = forgetHost(links, service, host);
+  if (next[service]?.length !== links[service]?.length) await write(localKey, LINKS, next);
+}
+
+/** Stops hiding `service` on `host`, from the settings page, so its name offers it there again. */
+export async function unhide(localKey: Bytes, service: string, host: string): Promise<void> {
+  const hidden = await readHidden(localKey);
+  const next = forgetHost(hidden, service, host);
+  if (next[service]?.length !== hidden[service]?.length) await write(localKey, HIDDEN, next);
 }

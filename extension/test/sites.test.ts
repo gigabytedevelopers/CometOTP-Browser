@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { issuerNames, linkedElsewhere, offer, sameSite, siteHost } from '../src/fill/sites.js';
+import { forgetHost, issuerNames, linkToSite, linkedElsewhere, offer, removeFromSite, sameSite, siteHost } from '../src/fill/sites.js';
 
 describe('siteHost', () => {
   it('takes https pages, and http only on this computer', () => {
@@ -85,5 +85,54 @@ describe('offer', () => {
     assert.deepEqual(linkedElsewhere(services[0]!, links, 'github.evil.com'), ['github.com']);
     assert.deepEqual(linkedElsewhere(services[0]!, links, 'github.com'), []);
     assert.deepEqual(linkedElsewhere(services[1]!, links, 'github.com'), []);
+  });
+});
+
+describe('taking a service off a site', () => {
+  const github = { id: 'gh', issuer: 'GitHub' };
+  const example = { id: 'ex', issuer: 'Example' };
+
+  it('unlinks a service filled on the wrong site, which is then offered as before', () => {
+    const links = { ex: ['github.com'], gh: ['github.com'] };
+    const removed = removeFromSite(example, links, {}, 'github.com');
+    assert.deepEqual(removed, { links: { gh: ['github.com'] }, hidden: {} });
+    assert.deepEqual(offer([github, example], removed.links, 'github.com', removed.hidden).others.map((s) => s.id), ['ex']);
+    // Linked nowhere now, its name offers it on its own site again.
+    assert.deepEqual(offer([example], removed.links, 'login.example.com', removed.hidden).matching.map((s) => s.id), ['ex']);
+  });
+
+  it('removes the link a subdomain was offered through, and keeps links elsewhere', () => {
+    const removed = removeFromSite(example, { ex: ['example.com', 'example.org'] }, {}, 'login.example.com');
+    assert.deepEqual(removed, { links: { ex: ['example.org'] }, hidden: {} });
+  });
+
+  it('hides a service its name would still offer, on that site only', () => {
+    const removed = removeFromSite(github, {}, {}, 'github.top');
+    assert.deepEqual(removed, { links: {}, hidden: { gh: ['github.top'] } });
+    assert.deepEqual(offer([github], removed.links, 'github.top', removed.hidden).others.map((s) => s.id), ['gh']);
+    assert.deepEqual(offer([github], removed.links, 'login.github.top', removed.hidden).matching, []);
+    assert.deepEqual(offer([github], removed.links, 'github.com', removed.hidden).matching.map((s) => s.id), ['gh']);
+    // Unlinked from a site its name matches, it is hidden there rather than offered by name.
+    const unlinked = removeFromSite(github, { gh: ['github.com'] }, {}, 'github.com');
+    assert.deepEqual(unlinked, { links: {}, hidden: { gh: ['github.com'] } });
+    // Taken off twice, it is hidden once.
+    assert.deepEqual(removeFromSite(github, removed.links, removed.hidden, 'github.top'), removed);
+  });
+
+  it('links a service filled after all, and stops hiding it there', () => {
+    const hidden = { gh: ['github.top', 'github.co'] };
+    const filled = linkToSite(github, {}, hidden, 'login.github.top');
+    assert.deepEqual(filled, { links: { gh: ['login.github.top'] }, hidden: { gh: ['github.co'] } });
+    assert.deepEqual(offer([github], filled.links, 'login.github.top', filled.hidden).linked.map((s) => s.id), ['gh']);
+    assert.deepEqual(linkToSite(github, filled.links, filled.hidden, 'login.github.top'), filled);
+  });
+
+  it('forgets one host exactly, from the settings page', () => {
+    assert.deepEqual(forgetHost({ gh: ['github.com', 'gist.github.com'], ex: ['example.com'] }, 'gh', 'github.com'), {
+      gh: ['gist.github.com'],
+      ex: ['example.com'],
+    });
+    assert.deepEqual(forgetHost({ gh: ['github.com'] }, 'gh', 'github.com'), {});
+    assert.deepEqual(forgetHost({ gh: ['github.com'] }, 'gh', 'example.com'), { gh: ['github.com'] });
   });
 });
