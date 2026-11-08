@@ -4,7 +4,7 @@
 import { fromBase64UrlOfLength, toBase64Url, type Bytes } from '@cometotp/protocol';
 
 import { createLock, isLockRecord, openLock, openWithPasskey, relock, wrapForPasskey, type LockRecord } from './crypto.js';
-import { clearRecords, clearSessionKey, getRecord, getSessionKey, putRecord, setSessionKey } from './storage.js';
+import { clearRecords, clearSessionKey, getRecord, getSessionKey, putRecord, setSessionKey, updateRecords } from './storage.js';
 
 const LOCK_RECORD = 'lock';
 
@@ -14,6 +14,22 @@ export type LockState = 'new' | 'locked' | 'unlocked';
 async function record(): Promise<LockRecord | null> {
   const value = await getRecord(LOCK_RECORD);
   return isLockRecord(value) ? value : null;
+}
+
+/**
+ * Changes the lock record as it is when written, not as it was read before some slow work, so a
+ * passkey removed during a password change stays removed. `change` returns null to leave it.
+ * Says whether it was changed.
+ */
+async function updateLock(change: (current: LockRecord) => LockRecord | null): Promise<boolean> {
+  let changed = false;
+  await updateRecords([LOCK_RECORD], (records) => {
+    const current = records[LOCK_RECORD];
+    const next = isLockRecord(current) ? change(current) : null;
+    changed = next !== null;
+    return next ? { [LOCK_RECORD]: next } : {};
+  });
+  return changed;
 }
 
 export async function state(): Promise<LockState> {
@@ -48,8 +64,10 @@ export async function changePassword(current: string, next: string): Promise<boo
   if (!stored) return false;
   const localKey = await openLock(stored, current);
   if (!localKey) return false;
-  await putRecord(LOCK_RECORD, await relock(stored, localKey, next));
-  return true;
+  const { kdf, password } = await relock(stored, localKey, next);
+  // Only the password's part is replaced, and only if no other change or reset replaced it
+  // meanwhile: a reset would have made another M.
+  return updateLock((now) => (now.password.sealed === stored.password.sealed ? { ...now, kdf, password } : null));
 }
 
 export function lock(): Promise<void> {
@@ -72,10 +90,10 @@ export async function passkeyCredential(): Promise<string | null> {
  * it seals M; replaces any passkey added before.
  */
 export async function addPasskey(credential: string, prf: Bytes): Promise<void> {
-  const stored = await record();
   const key = await localKey();
-  if (!stored || !key) throw new Error('Unlock first');
-  await putRecord(LOCK_RECORD, { ...stored, passkey: await wrapForPasskey(key, credential, prf) });
+  if (!key) throw new Error('Unlock first');
+  const passkey = await wrapForPasskey(key, credential, prf);
+  if (!(await updateLock((now) => ({ ...now, passkey })))) throw new Error('Unlock first');
 }
 
 /** Unlocks with the passkey's PRF output; false when it does not open the passkey's copy. */
@@ -90,10 +108,7 @@ export async function unlockWithPasskey(prf: Bytes): Promise<boolean> {
 
 /** Stops the passkey from unlocking; the password keeps working. */
 export async function removePasskey(): Promise<void> {
-  const stored = await record();
-  if (!stored?.passkey) return;
-  const { passkey: _removed, ...rest } = stored;
-  await putRecord(LOCK_RECORD, rest);
+  await updateLock(({ passkey, ...rest }) => (passkey ? rest : null));
 }
 
 /** Forgets the password and everything the extension keeps, for someone who has forgotten it. */

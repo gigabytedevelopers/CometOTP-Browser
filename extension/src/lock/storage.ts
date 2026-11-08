@@ -53,6 +53,55 @@ export async function clearRecords(): Promise<void> {
   await withStore('readwrite', (store) => store.clear());
 }
 
+/**
+ * Reads the records under `keys` and writes the changes `change` makes of them, in one transaction,
+ * so nothing written in between is lost: the background and a page may write at once, and a
+ * password change waits seconds for Argon2. `change` gets the records by key and returns the ones
+ * to write, undefined to delete. It must not wait on anything: the transaction ends once nothing
+ * is asked of it.
+ */
+export async function updateRecords(
+  keys: readonly string[],
+  change: (records: Record<string, unknown>) => Record<string, unknown>,
+): Promise<void> {
+  const db = await database();
+  try {
+    const tx = db.transaction(STORE, 'readwrite');
+    const store = tx.objectStore(STORE);
+    let failure: unknown;
+    const done = new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(failure ?? tx.error);
+      tx.onabort = () => reject(failure ?? tx.error);
+    });
+    const records: Record<string, unknown> = {};
+    let left = keys.length;
+    // Called back, not awaited: every request must be made while the transaction is still open.
+    const write = () => {
+      try {
+        for (const [key, value] of Object.entries(change(records))) {
+          if (value === undefined) store.delete(key);
+          else store.put(value, key);
+        }
+      } catch (error) {
+        failure = error;
+        tx.abort();
+      }
+    };
+    for (const key of keys) {
+      const req = store.get(key);
+      req.onsuccess = () => {
+        records[key] = req.result;
+        if (--left === 0) write();
+      };
+    }
+    if (!keys.length) write();
+    await done;
+  } finally {
+    db.close();
+  }
+}
+
 /** M while unlocked, base64url; null while locked. */
 export async function getSessionKey(): Promise<string | null> {
   const value = (await chrome.storage.session.get(SESSION_KEY))[SESSION_KEY];

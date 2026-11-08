@@ -173,7 +173,15 @@ passwordForm.addEventListener('submit', (event) => {
     (next !== passwordConfirm.value ? 'The two new passwords differ.' : next === passwordCurrent.value ? 'That is the current password.' : null);
   passwordError.textContent = why ?? '';
   if (why) return;
-  void busy(passwordSubmit, 'Changing…', () => changePassword(passwordCurrent.value, next)).then(
+  void busy(passwordSubmit, 'Changing…', async () => {
+    // Removing the passkey meanwhile would be kept (src/lock/lock.ts), but waiting is clearer.
+    passkeyRemove.disabled = true;
+    try {
+      return await changePassword(passwordCurrent.value, next);
+    } finally {
+      passkeyRemove.disabled = false;
+    }
+  }).then(
     (changed) => {
       if (!changed) {
         passwordError.textContent = 'The current password is wrong.';
