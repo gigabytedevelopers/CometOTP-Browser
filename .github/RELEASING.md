@@ -255,8 +255,9 @@ it built, so the release shows as yours, and you upload the zips to the stores.
      its code was written by a compiler (TypeScript).
 
    Once a store approves the version, copies installed from it update on their own, Chrome within
-   hours and Firefox within a day. **Check for updates** on the extension's settings page gets it
-   at once.
+   hours and Firefox within a day. To get it at once: in Chromium, **Check for updates** on the
+   extension's settings page; in Firefox, **Check for Updates** in the Add-ons Manager's gear menu,
+   which the settings page points to, as Firefox cannot be asked from the extension.
 
 ## Commit signatures
 

@@ -115,8 +115,11 @@ while Firefox shows the passkey and permission prompts.
   once (`runtime.requestUpdateCheck`); when the browser has downloaded a newer version
   (`runtime.onUpdateAvailable`), the page restarts the extension to install it, which locks it as
   quitting the browser does. The page listens for that only while it is open, since Firefox holds
-  an update back for as long as anything listens. A copy loaded from a folder says it cannot update
-  itself, as `management.getSelf` reports it as a development install; that needs no permission.
+  an update back for as long as anything listens. Firefox has not implemented asking the store, so
+  there the page says how to check from its Add-ons Manager instead; the load test checks that
+  Chromium has `runtime.requestUpdateCheck` and Firefox does not. A copy loaded from a folder says it
+  cannot update itself, as `management.getSelf` reports it as a development install; that needs no
+  permission.
 
 ## Usage statistics
 
@@ -330,7 +333,8 @@ npm run load-test --workspace @cometotp/extension
   PRF is refused, and the password still works. WebDriver BiDi has no virtual authenticator yet,
   so in Firefox it only checks whether passkeys are offered. On the settings page it checks that
   usage statistics are off with no id kept, that the build, loaded from a folder, says it cannot
-  update itself, chooses a lock time (the popup must then say it),
+  update itself, and that only Chromium can be asked to check its store, chooses a lock time (the
+  popup must then say it),
   names the browser (the stand-in phone below checks the name in the pairing code), and changes
   the password: a wrong current one is refused, the old
   one stops unlocking and the new one unlocks to the same key, with the passkey kept. Then, in
