@@ -70,6 +70,7 @@ the same time as the other.
 | `PAIR_KEYS_INFO` | `utf8("CometOTP pair v1 keys")` |
 | `VAULT_INFO` | `utf8("CometOTP vault v1")` |
 | `SERVICE_ID_LABEL` | `utf8("CometOTP service v1")` |
+| `SERVICE_ALIAS_LABEL` | `utf8("CometOTP service v1 alias")` |
 | `BLOB_MAGIC` | `utf8("COV1")` |
 | `PAD_BLOCK` | 4096 |
 | `TO_BROWSER`, `TO_PHONE` | 1, 2 |
@@ -284,7 +285,25 @@ id = b64u(SHA256(SERVICE_ID_LABEL ‖ secret bytes)[0:12])        16 characters
 
 The id depends only on the secret, which CometOTP never lets the person edit, so it stays the same
 when the service is renamed. The browser uses it to remember which sites belong to which service.
-If two services share a secret, the phone includes only the first.
+
+A person can have two services with the same secret, such as one QR code added twice under
+different names. They show the same codes, but each is a service of its own on the phone, so the
+phone includes each of them. Going through the services in list order, the first with a given
+secret gets the id above; each later one gets an alias id, which depends on its issuer and label
+too:
+
+```
+alias id = b64u(SHA256(SERVICE_ALIAS_LABEL ‖ lp(secret bytes) ‖ lp(utf8(issuer)) ‖ lp(utf8(label)))[0:12])
+```
+
+A later service whose alias id was already given, as it has the same secret, issuer and label as
+an earlier one, is the same service listed twice, and is left out. So is one whose issuer or label
+is 65,536 bytes or longer, which `lp` cannot carry. Renaming a service with an alias id changes the
+id, so the browser no longer offers it first on the sites it was filled on.
+
+Browsers do not compute ids; they use them as given and only rely on their being unique. Phones
+made before alias ids sent only the first service with a given secret, which browsers handle the
+same way.
 
 ---
 
