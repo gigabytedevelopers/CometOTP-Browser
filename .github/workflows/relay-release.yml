@@ -178,7 +178,7 @@ jobs:
     needs: [check, publish]
     if: github.repository == 'gigabytedevelopers/CometOTP-Browser'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     # The environment holds Coolify's token and addresses, and only relay-v* tags may use it
     # (.github/RELEASING.md). One deployment at a time, never cancelled half-way.
     environment:
@@ -187,9 +187,42 @@ jobs:
     concurrency:
       group: relay-production
       cancel-in-progress: false
+    outputs:
+      relay-url: ${{ vars.RELAY_URL }}
+    steps:
+      # Nothing from the tagged commit runs in this job, which can reach the token: the deployment
+      # script and the service's compose file come from the default branch, and the tests run in
+      # the next job.
+      - name: Fetch the deployment from the default branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: |
+            .github/scripts
+            relay/deploy
+          persist-credentials: false
+
+      # Only this step sees the token. Coolify gets relay/deploy/coolify.yaml with the image just
+      # published, pulls it and restarts the relay; the step ends once the relay says it runs it.
+      - name: Deploy the image and wait until the relay runs it
+        env:
+          COOLIFY_URL: ${{ vars.COOLIFY_URL }}
+          COOLIFY_SERVICE_UUID: ${{ vars.COOLIFY_SERVICE_UUID }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          RELAY_URL: ${{ vars.RELAY_URL }}
+          IMAGE: ${{ needs.publish.outputs.image }}
+          VERSION: ${{ needs.check.outputs.version }}
+          COMMIT: ${{ github.sha }}
+        run: python3 -I .github/scripts/deploy_relay.py
+
+  test:
+    name: Test the official relay
+    needs: [check, deploy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
-      VERSION: ${{ needs.check.outputs.version }}
-      RELAY_URL: ${{ vars.RELAY_URL }}
+      RELAY_URL: ${{ needs.deploy.outputs.relay-url }}
+      RELAY_VERSION: ${{ needs.check.outputs.version }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -210,24 +243,16 @@ jobs:
           rm -rf .security-check
           python3 -I "$RUNNER_TEMP/check_repository_security.py"
 
-      # Only this step sees the token. Coolify gets relay/deploy/coolify.yaml with the image just
-      # published, pulls it and restarts the relay; the step ends once the relay says it runs it.
-      - name: Deploy the image and wait until the relay runs it
-        env:
-          COOLIFY_URL: ${{ vars.COOLIFY_URL }}
-          COOLIFY_SERVICE_UUID: ${{ vars.COOLIFY_SERVICE_UUID }}
-          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
-          IMAGE: ${{ needs.publish.outputs.image }}
-          COMMIT: ${{ github.sha }}
-        run: python3 -I .github/scripts/deploy_relay.py
-
       - name: Install the locked dependencies without install scripts
         run: npm ci --ignore-scripts
 
+      # The tests skip themselves without RELAY_URL, which would pass without testing anything.
       - name: Test the deployed relay
-        env:
-          RELAY_VERSION: ${{ needs.check.outputs.version }}
         run: |
+          if [ -z "$RELAY_URL" ]; then
+            echo "::error::The deploy job gave no RELAY_URL"
+            exit 1
+          fi
           npm run build --workspace @cometotp/protocol
           npm run build --workspace @cometotp/relay
           node --test relay/dist/test/deployed.test.js

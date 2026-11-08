@@ -118,9 +118,15 @@ a service in Coolify (`.github/scripts/deploy_relay.py`):
 3. It waits up to ten minutes for the relay to say it runs the new version (`X-Relay-Version` on
    `GET /v1/`), then runs the deployed tests against it (`relay/test/deployed.test.ts`).
 
-So change the official relay's service in `relay/deploy/coolify.yaml`: an edit made in Coolify is
-undone by the next release. If the deployment fails, the image is published all the same: fix what
-the job's log says, then re-run the failed job, or deploy the digest by hand in Coolify.
+The script and `relay/deploy/coolify.yaml` are taken from `main` as it is when the job runs, not
+from the tag, so the tagged commit cannot change what is done with Coolify's token. The tests come
+from the tag, so they run in a job of their own, without the environment: code in a job can read
+every secret that job uses, as steps on GitHub's runners have `sudo`.
+
+So change the official relay's service in `relay/deploy/coolify.yaml` on `main`: an edit made in
+Coolify is undone by the next release. If the deployment fails, the image is published all the
+same: fix what the job's log says, then re-run the failed job, or deploy the digest by hand in
+Coolify.
 
 It needs, once, a **`relay-production`** environment in the repository's settings (Settings →
 Environments):
