@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
-import { createServer } from 'node:http';
 
 import { createRelay } from './app.js';
 import { configFromEnv } from './config.js';
+import { createRelayServer } from './server.js';
 import { RelayStore } from './store.js';
 
 const HOUSEKEEPING_MS = 5 * 60 * 1000;
@@ -14,10 +14,7 @@ const config = { ...configFromEnv(), version };
 const store = new RelayStore(config.databasePath);
 const relay = createRelay(config, store);
 
-const server = createServer((req, res) => void relay.handle(req, res));
-// Long polls hold a request open for longPollMs; allow a little more.
-server.requestTimeout = config.longPollMs + 10_000;
-server.headersTimeout = 15_000;
+const server = createRelayServer(relay);
 
 const housekeeping = setInterval(() => {
   const result = relay.housekeeping();

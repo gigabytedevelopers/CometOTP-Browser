@@ -2,7 +2,7 @@
 // tests move. Blobs are real vaults sealed with @cometotp/protocol.
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
-import { createServer, request, type Server } from 'node:http';
+import { request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, beforeEach, describe, it } from 'node:test';
 
@@ -19,6 +19,7 @@ import {
 
 import { MAX_FRAME, MAX_MESSAGES, createRelay, type Relay } from '../src/app.js';
 import { DEFAULT_LIMITS, type RelayConfig } from '../src/config.js';
+import { createRelayServer } from '../src/server.js';
 import { RelayStore } from '../src/store.js';
 
 const MINUTE = 60_000;
@@ -44,7 +45,7 @@ function start(limits = DEFAULT_LIMITS): Promise<void> {
   config.limits = { ...limits };
   store = new RelayStore(':memory:');
   relay = createRelay(config, store, () => clock);
-  server = createServer((req, res) => void relay.handle(req, res));
+  server = createRelayServer(relay);
   return new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () => {
       base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -146,6 +147,12 @@ describe('relay', () => {
       assert.equal(r.headers.get('access-control-allow-origin'), '*');
       assert.equal(r.headers.get('access-control-expose-headers'), 'Date, ETag, Retry-After');
       assert.equal(r.headers.get('cache-control'), 'no-store');
+    });
+
+    it('gives a request time to arrive at the slowest upload rate, not just a long poll', () => {
+      // A largest blob at 8 KiB a second: a real one would take the test minutes.
+      assert.ok(server.requestTimeout >= (MAX_BLOB_LENGTH / 8192) * 1000, `${server.requestTimeout} ms is too short`);
+      assert.ok(server.headersTimeout < server.requestTimeout);
     });
 
     it('answers preflights', async () => {
