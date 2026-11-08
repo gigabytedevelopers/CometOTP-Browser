@@ -38,14 +38,19 @@ for testing.
   and strict content security policies leave them alone. Only a person's click opens the menu.
 - **The menu** is an extension page in a frame (`src/fill/menu.ts`), so the page sees neither the
   services nor any secret: only the code, once chosen, in the field the menu was opened for. It
-  lists the services filled on this site before, then those whose issuer is the site's own name
-  ("GitHub" on github.com, not on github.evil.com), and finds the rest by search. It holds names
-  only: the background computes the code of the service chosen, links the service to the site
-  (sealed under the local key with the rest of the pairing) and sends the code to the field's
-  frame. So the frame never holds the local key, and needs no storage of its own, which Firefox
-  partitions for frames in other sites' pages.
-- **A service linked to other sites** is never listed elsewhere. Found by search, it is filled only
-  once the person confirms, as a site can pose as another to get its code.
+  offers the services filled on this site before, then those whose issuer is the site's own name
+  ("GitHub" on github.com, not on github.evil.com), and lists every other service below them, which
+  the search narrows. It holds names only: the background computes the code of the service chosen,
+  links the service to the site (sealed under the local key with the rest of the pairing) and sends
+  the code to the field's frame. So the frame never holds the local key, and needs no storage of its
+  own, which Firefox partitions for frames in other sites' pages.
+- **A service linked to other sites** is never offered elsewhere. Chosen from the rest, it is filled
+  only once the person confirms, as a site can pose as another to get its code.
+- **A service offered where it does not belong**, filled there by mistake or matched by a name it
+  shares with the site, is taken off the site with the **×** at the end of its row. Its link to the
+  site goes, and if its issuer would still offer it there, the site is kept, sealed like the links,
+  as one it is hidden on. It stays among the rest, and filling it there again links it once more.
+  The settings page lists both, to forget one from there too.
 - **A service's first fill** on any site is confirmed too, showing the site's address: a matching
   name proves nothing, as "GitHub" names github.top as well as github.com. Once confirmed, the
   service is linked there and filled with one click.
@@ -88,8 +93,11 @@ while Firefox shows the passkey and permission prompts.
 - **Name:** the name the phone shows when pairing, such as "Chrome on macOS" unless the person
   chooses another, in at most 64 bytes as the pairing code carries it. The phone keeps the name it
   was given: renaming a paired browser happens in CometOTP, in Connected extensions.
+- **Sites:** the sites each service was filled on, where the menu offers it first, and those it
+  was taken off, each with a button to forget it. They are sealed under the local key, so the list
+  needs the extension unlocked.
 - **Disconnect** (protocol §7.2) deletes the vault on the relay with the read token, then
-  everything the pairing kept here (its details, the copy and the sites filled), even when the
+  everything the pairing kept here (its details, the copy and the sites filled or hidden), even when the
   relay cannot be reached. The phone gets `410` at its next upload and shows the browser as disconnected.
   If the relay could not be reached, the page says to remove the browser on the phone too. A relay
   that no longer knows the browser (`401`, `404`) has nothing left to delete, so that counts as
@@ -328,14 +336,15 @@ npm run load-test --workspace @cometotp/extension
   popup must say it removed the browser, with the pairing and the copy gone. Before that, it
   fills codes into a page it serves
   under a strict content security policy: the code field gets the button and the email field does
-  not; the menu finds the service by search and, once the site is confirmed, fills the field with
-  its code; six one-digit
-  boxes get a digit each from the service, now linked and offered first; a frame from the same
+  not; the menu lists every service, a search narrows them to the service and, once the site is
+  confirmed, choosing it fills the field with its code; six one-digit
+  boxes get a digit each from the service, now linked and offered first; taken off the site, it is
+  listed among the rest again and the settings page lists no site; a frame from the same
   host gets the button and one from another host does not; Escape closes the menu. Neither
   browser, driven this way, can answer the prompt for access to sites or click in the popup as a
   person would, so both load a copy of the build that has access already. In Firefox, which lets
   an extension give such access back, **Turn off** must then remove the button. Last, it pairs
-  again and disconnects from the settings page: the pairing, the copy and the site links must be
+  again and disconnects from the settings page: the pairing, the copy and the sites kept must be
   gone, and the stand-in phone's next upload must get `410`. Chrome is driven through the
   DevTools protocol (`Extensions.loadUnpacked`), Firefox through WebDriver BiDi
   (`webExtension.install`). A browser that is not installed is skipped, except in CI, which runs

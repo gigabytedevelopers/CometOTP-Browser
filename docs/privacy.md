@@ -26,7 +26,8 @@ In the browser's storage for the extension:
   your phone shares, it holds the secret, issuer, label, code settings, icon name, initials, badge
   colour and tags. Never usage counts or when a code was last used.
 - **The sites you filled codes on,** sealed under the local key, so the menu offers the right
-  service first.
+  service first, and **the sites you took a service off,** sealed the same way, so the menu stops
+  offering it there. The settings page lists both, and you can remove any of them.
 - **Settings:** how soon the extension locks, the name your phone shows for this browser, the relay
   chosen for pairing, and when it last checked for a new copy.
 - **Usage statistics, only if you turned them on:** the random ID made for them. While the browser
@@ -121,6 +122,8 @@ sent anywhere.
 ## Removing your data
 
 - **Turning usage statistics off** stops them and deletes their random ID from your browser.
+- **Remove** next to a site in the extension's settings, or the **×** next to a service in the
+  menu of a code field, forgets that the service belongs to that site.
 - **Disconnect** in the extension's settings deletes the vault on the relay and everything the
   pairing kept in the browser.
 - **Remove** in CometOTP on your phone deletes the vault on the relay; the extension then deletes

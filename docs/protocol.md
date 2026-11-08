@@ -430,8 +430,8 @@ can answer `410` rather than `404`.
 
 This part does not affect the other parties; it records the design for review.
 
-- A random 32-byte local key `M` encrypts the vault key, the downloaded payload and the site
-  links, with AES-256-GCM.
+- A random 32-byte local key `M` encrypts the vault key, the downloaded payload, the site links
+  and the sites a service is hidden on, with AES-256-GCM.
 - `M` is stored wrapped twice:
   - by `Argon2id(password, 16-byte salt, m = 64 MiB, t = 3, p = 1, 32 bytes)`, with the password
     NFC-normalized and UTF-8 encoded, and `utf8("CometOTP lock v1 password")` as the associated
