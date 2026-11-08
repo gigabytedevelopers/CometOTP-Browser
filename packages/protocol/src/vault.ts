@@ -1,9 +1,10 @@
 import { hkdf, open, randomBytes, seal, sha256 } from './crypto.js';
-import { concat, fromBase32, fromBase64Url, fromUtf8, toBase64Url, u32, u64, utf8, type Bytes } from './encoding.js';
+import { concat, fromBase32, fromBase64Url, fromUtf8, lp, toBase64Url, u32, u64, utf8, type Bytes } from './encoding.js';
 import { ProtocolError } from './errors.js';
 
 const VAULT_INFO = utf8('CometOTP vault v1');
 const SERVICE_ID_LABEL = utf8('CometOTP service v1');
+const SERVICE_ALIAS_LABEL = utf8('CometOTP service v1 alias');
 export const BLOB_MAGIC = utf8('COV1');
 export const PAD_BLOCK = 4096;
 export const MAX_BLOCKS = 255;
@@ -126,6 +127,14 @@ export interface Payload {
 /** `b64u(SHA256(SERVICE_ID_LABEL ‖ secret)[0:12])`. */
 export async function serviceId(secret: Bytes): Promise<string> {
   return toBase64Url((await sha256(SERVICE_ID_LABEL, secret)).subarray(0, 12));
+}
+
+/**
+ * The id of a later service with the same secret as an earlier one (protocol §4.4):
+ * `b64u(SHA256(SERVICE_ALIAS_LABEL ‖ lp(secret) ‖ lp(utf8(issuer)) ‖ lp(utf8(label)))[0:12])`.
+ */
+export async function serviceAliasId(secret: Bytes, issuer: string, label: string): Promise<string> {
+  return toBase64Url((await sha256(SERVICE_ALIAS_LABEL, concat(lp(secret), lp(utf8(issuer)), lp(utf8(label))))).subarray(0, 12));
 }
 
 /** The payload's JSON, with members in the protocol's order. */

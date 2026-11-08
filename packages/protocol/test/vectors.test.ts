@@ -25,6 +25,7 @@ import {
   parsePayload,
   sealPairingFrame,
   sealVault,
+  serviceAliasId,
   serviceId,
   sha256,
   toBase64Url,
@@ -84,6 +85,7 @@ interface Vectors {
     blob: string;
   };
   service_ids: { secret: string; id: string }[];
+  service_alias_ids: { secret: string; issuer: string; label: string; id: string }[];
   codes: {
     type: ServiceType;
     secret: string;
@@ -204,6 +206,17 @@ describe('vault vectors', () => {
 
   it('computes the listed service ids', async () => {
     for (const v of vectors.service_ids) assert.equal(await serviceId(fromBase32(v.secret)), v.id);
+  });
+
+  it('computes the alias ids of later services with the same secret', async () => {
+    const ids = new Set<string>();
+    for (const v of vectors.service_alias_ids) {
+      const secret = fromBase32(v.secret);
+      assert.equal(await serviceAliasId(secret, v.issuer, v.label), v.id);
+      assert.notEqual(v.id, await serviceId(secret));
+      ids.add(v.id);
+    }
+    assert.equal(ids.size, vectors.service_alias_ids.length);
   });
 });
 

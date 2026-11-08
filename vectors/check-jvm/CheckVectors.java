@@ -46,6 +46,7 @@ public class CheckVectors {
     static final byte[] PAIR_KEYS_INFO = utf8("CometOTP pair v1 keys");
     static final byte[] VAULT_INFO = utf8("CometOTP vault v1");
     static final byte[] SERVICE_ID_LABEL = utf8("CometOTP service v1");
+    static final byte[] SERVICE_ALIAS_LABEL = utf8("CometOTP service v1 alias");
     static final byte[] BLOB_MAGIC = utf8("COV1");
     static final int PAD_BLOCK = 4096;
     static final String STEAM_CHARS = "23456789BCDFGHJKMNPQRTVWXY";
@@ -72,6 +73,11 @@ public class CheckVectors {
         for (Object item : list(vectors.get("service_ids"))) {
             Map<String, Object> v = map(item);
             check(serviceId(base32(str(v, "secret"))).equals(str(v, "id")), "service id of " + str(v, "secret"));
+        }
+        for (Object item : list(vectors.get("service_alias_ids"))) {
+            Map<String, Object> v = map(item);
+            String id = serviceAliasId(base32(str(v, "secret")), str(v, "issuer"), str(v, "label"));
+            check(id.equals(str(v, "id")), "alias id of " + str(v, "issuer") + " / " + str(v, "label"));
         }
         for (Object item : list(vectors.get("codes")))
             checkCode(map(item));
@@ -344,6 +350,11 @@ public class CheckVectors {
 
     static String serviceId(byte[] secret) throws GeneralSecurityException {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(Arrays.copyOf(sha256(SERVICE_ID_LABEL, secret), 12));
+    }
+
+    static String serviceAliasId(byte[] secret, String issuer, String label) throws GeneralSecurityException {
+        byte[] hash = sha256(SERVICE_ALIAS_LABEL, lp(secret), lp(utf8(issuer)), lp(utf8(label)));
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(Arrays.copyOf(hash, 12));
     }
 
     // --- Point arithmetic, only to check the vector's public keys -----------------------------

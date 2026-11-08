@@ -66,6 +66,7 @@ const PAIR_LABEL = utf8('CometOTP pair v1');
 const PAIR_KEYS_INFO = utf8('CometOTP pair v1 keys');
 const VAULT_INFO = utf8('CometOTP vault v1');
 const SERVICE_ID_LABEL = utf8('CometOTP service v1');
+const SERVICE_ALIAS_LABEL = utf8('CometOTP service v1 alias');
 const BLOB_MAGIC = utf8('COV1');
 const PAD_BLOCK = 4096;
 const TO_BROWSER = 1;
@@ -139,6 +140,8 @@ const messages = [
 // --- Vault blob -------------------------------------------------------------------------------
 
 const serviceId = (secretBytes) => b64u(sha256(SERVICE_ID_LABEL, secretBytes).subarray(0, 12));
+const serviceAliasId = (secretBytes, issuer, label) =>
+  b64u(sha256(SERVICE_ALIAS_LABEL, lp(secretBytes), lp(utf8(issuer)), lp(utf8(label))).subarray(0, 12));
 
 const githubSecret = unbase32('JBSWY3DPEHPK3PXP');
 const steamSecret = fixed('steam secret', 20);
@@ -303,6 +306,14 @@ const vectors = {
     { secret: base32(githubSecret), id: serviceId(githubSecret) },
     { secret: base32(steamSecret), id: serviceId(steamSecret) },
   ],
+  // Later services with the same secret as an earlier one (protocol §4.4): names in and out of
+  // ASCII, and an empty issuer, all with the GitHub service's secret.
+  service_alias_ids: [
+    ['Miden', 'emmanuel@example.com'],
+    ['WanPay', 'emmanuel@example.com'],
+    ['Société Générale', 'café ☕'],
+    ['', 'GitHub:alice'],
+  ].map(([issuer, label]) => ({ secret: base32(githubSecret), issuer, label, id: serviceAliasId(githubSecret, issuer, label) })),
   codes,
   reject,
 };
