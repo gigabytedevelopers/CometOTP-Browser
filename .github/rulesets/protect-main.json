@@ -46,11 +46,27 @@
             "integration_id": 15368
           },
           {
+            "context": "Protocol vectors",
+            "integration_id": 15368
+          },
+          {
+            "context": "Protocol package",
+            "integration_id": 15368
+          },
+          {
+            "context": "Relay",
+            "integration_id": 15368
+          },
+          {
             "context": "Extension",
             "integration_id": 15368
           },
           {
             "context": "Extension in browsers",
+            "integration_id": 15368
+          },
+          {
+            "context": "Relay image",
             "integration_id": 15368
           }
         ],

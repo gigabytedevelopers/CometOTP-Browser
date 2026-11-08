@@ -25,12 +25,12 @@ gh pr edit <number> --add-reviewer princesseke
 | Check | Workflow | Required | What it does |
 | --- | --- | --- | --- |
 | Repository security | `repository-security.yml` | yes | Rejects editor tasks that run when a folder opens, disguised payloads and committed credentials, without running any repository code. |
-| Protocol vectors | `protocol-vectors.yml` | not yet | Regenerates the protocol test vectors, which must not change, and recomputes them with the Java crypto APIs Android uses. |
-| Protocol package | `protocol-package.yml` | not yet | Builds `packages/protocol` and runs its tests, which reproduce the test vectors. |
-| Relay | `relay.yml` | not yet | Builds the relay and runs its API tests. |
+| Protocol vectors | `protocol-vectors.yml` | yes | Regenerates the protocol test vectors, which must not change, and recomputes them with the Java crypto APIs Android uses. |
+| Protocol package | `protocol-package.yml` | yes | Builds `packages/protocol` and runs its tests, which reproduce the test vectors. |
+| Relay | `relay.yml` | yes | Builds the relay and runs its API tests. |
 | Extension | `extension.yml` | yes | Builds the extension for Chromium and Firefox, runs its strict typecheck and tests, checks each package (permissions, content security policy, inline or remote code), and keeps both zips as an artifact. |
 | Extension in browsers | `extension.yml` | yes | Loads each build into the runner's Chrome and Firefox, where its popup must reach its background. |
-| Relay image | `relay-image.yml` | not yet | Builds the relay's Docker image, starts it behind Caddy as the self-hosting guide does, pairs and syncs through it, and checks it runs unprivileged and keeps its data across a restart. |
+| Relay image | `relay-image.yml` | yes | Builds the relay's Docker image, starts it behind Caddy as the self-hosting guide does, pairs and syncs through it, and checks it runs unprivileged and keeps its data across a restart. |
 
 Only required checks block a merge. If you rename a required job, update the matching `context` in
 the ruleset as well: a required check that no longer reports leaves pull requests waiting forever.
