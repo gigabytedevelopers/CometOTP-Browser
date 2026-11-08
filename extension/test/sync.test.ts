@@ -5,9 +5,9 @@ import { beforeEach, describe, it } from 'node:test';
 
 import { blobVersion, buildPayload, randomBytes, sealVault, toBase64Url, type Bytes, type Payload } from '@cometotp/protocol';
 
-import { clearSessionKey, getRecord, setSessionKey } from '../src/lock/storage.js';
+import { clearSessionKey, getRecord, putRecord, setSessionKey } from '../src/lock/storage.js';
 import { pairingRecord, storePairing } from '../src/sync/store.js';
-import { acceptPending, services, sync } from '../src/sync/sync.js';
+import { acceptPending, notice, services, sync, syncStatus } from '../src/sync/sync.js';
 import { installBrowser, type FakeIndexedDB } from './fake-browser.js';
 
 const RELAY = 'https://relay.example.com';
@@ -17,13 +17,18 @@ class Relay {
   blob: Bytes | null = null;
   /** Answered instead of the vault, such as 401 or 410. */
   status: { code: number; error: string } | null = null;
+  reachable = true;
+  /** The version each download said it had, from If-None-Match. */
+  had: (string | undefined)[] = [];
 
   constructor(readonly vault: string, readonly read: string) {
     globalThis.fetch = (input, init) => this.answer(String(input), init ?? {});
   }
 
   private async answer(url: string, init: RequestInit): Promise<Response> {
+    if (!this.reachable) throw new TypeError('fetch failed');
     const headers = init.headers as Record<string, string>;
+    this.had.push(headers['If-None-Match']);
     assert.equal(url, `${RELAY}/v1/vault/${this.vault}`);
     assert.equal(headers.Authorization, `Bearer ${this.read}`);
     const date = { Date: new Date().toUTCString() };
@@ -52,6 +57,7 @@ let localKey: Bytes;
 /** Version `version` of the vault, its one service named `issuer`. */
 const vault = (version: number, issuer = `Version ${version}`) => sealVault(vaultKey, vaultId, version, buildPayload(payload(issuer)));
 const unlock = () => setSessionKey(toBase64Url(localKey));
+const lock = () => clearSessionKey();
 const shown = async () => (await services())?.payload.services.map((s) => s.issuer) ?? null;
 
 beforeEach(async () => {
@@ -66,6 +72,123 @@ beforeEach(async () => {
 });
 
 describe('sync', () => {
+  it('downloads the first version, then nothing while it is unchanged', async () => {
+    relay.blob = await vault(1);
+    await sync();
+    assert.deepEqual(await shown(), ['Version 1']);
+    assert.equal((await pairingRecord())?.version, 1);
+    await sync();
+    assert.deepEqual(relay.had, [undefined, '"1"']);
+    assert.equal((await syncStatus()).warning, null);
+  });
+
+  it('keeps a version downloaded while locked aside, still sealed, and takes it at the next unlock', async () => {
+    relay.blob = await vault(1);
+    await sync();
+    await lock();
+    relay.blob = await vault(2);
+    await sync();
+    assert.equal((await pairingRecord())?.version, 1);
+    assert.equal(((await getRecord('vault-pending')) as { version: number }).version, 2);
+    assert.equal(await services(), null);
+    // Downloading again while locked asks for the version kept aside, which costs one 304.
+    await sync();
+    assert.equal(relay.had.at(-1), '"2"');
+    await unlock();
+    await acceptPending();
+    assert.equal((await pairingRecord())?.version, 2);
+    assert.deepEqual(await shown(), ['Version 2']);
+    assert.equal(await getRecord('vault-pending'), undefined);
+  });
+
+  it('replaces a version kept aside with a made-up high number by the next real one', async () => {
+    relay.blob = await vault(1);
+    await sync();
+    await lock();
+    // Version 999, as far as anyone can tell without the vault key, which is under the lock.
+    relay.blob = await sealVault(randomBytes(32), vaultId, 999, buildPayload(payload('Fake')));
+    await sync();
+    assert.equal(((await getRecord('vault-pending')) as { version: number }).version, 999);
+    relay.blob = await vault(2);
+    await sync();
+    assert.equal(relay.had.at(-1), '"999"');
+    assert.equal(((await getRecord('vault-pending')) as { version: number }).version, 2);
+    await unlock();
+    await acceptPending();
+    assert.deepEqual(await shown(), ['Version 2']);
+    assert.equal((await syncStatus()).warning, null);
+  });
+
+  it('says so when a version kept aside does not open, and keeps the copy', async () => {
+    relay.blob = await vault(1);
+    await sync();
+    await lock();
+    relay.blob = await sealVault(randomBytes(32), vaultId, 2, buildPayload(payload('Fake')));
+    await sync();
+    await unlock();
+    await acceptPending();
+    assert.equal((await syncStatus()).warning, 'bad-vault');
+    assert.deepEqual(await shown(), ['Version 1']);
+    assert.equal((await pairingRecord())?.version, 1);
+  });
+
+  it('warns of an older version than the one accepted, and keeps the copy', async () => {
+    relay.blob = await vault(2);
+    await sync();
+    relay.blob = await vault(1);
+    await sync();
+    assert.equal((await syncStatus()).warning, 'rollback');
+    assert.deepEqual(await shown(), ['Version 2']);
+    assert.equal((await pairingRecord())?.version, 2);
+    assert.equal(await getRecord('vault-pending'), undefined);
+  });
+
+  it('deletes everything the pairing kept once the phone removed the browser (410), and says so', async () => {
+    relay.blob = await vault(1);
+    await sync();
+    await putRecord('site-links', { nonce: 'n', sealed: 's' });
+    await lock();
+    relay.blob = await vault(2);
+    await sync();
+    relay.status = { code: 410, error: 'gone' };
+    await sync();
+    for (const record of ['pairing', 'vault-secret', 'vault-blob', 'vault-pending', 'site-links', 'sync-status']) {
+      assert.equal(await getRecord(record), undefined, record);
+    }
+    assert.equal(await notice(), 'disconnected');
+  });
+
+  it('keeps the copy when the relay no longer knows the browser (401, 404), and says to pair again', async () => {
+    relay.blob = await vault(1);
+    await sync();
+    for (const status of [
+      { code: 401, error: 'unauthorized' },
+      { code: 404, error: 'not_found' },
+    ]) {
+      relay.status = status;
+      await sync();
+      assert.equal((await syncStatus()).warning, 'repair', String(status.code));
+      assert.deepEqual(await shown(), ['Version 1']);
+      assert.equal((await pairingRecord())?.version, 1);
+    }
+  });
+
+  it('keeps the copy when the relay cannot be reached, and when it has no vault yet', async () => {
+    relay.blob = await vault(1);
+    await sync();
+    const { checkedAt } = await syncStatus();
+    relay.reachable = false;
+    await sync();
+    assert.equal((await syncStatus()).warning, 'unreachable');
+    assert.equal((await syncStatus()).checkedAt, checkedAt);
+    assert.deepEqual(await shown(), ['Version 1']);
+    relay.reachable = true;
+    relay.blob = null;
+    await sync();
+    assert.equal((await syncStatus()).warning, null);
+    assert.deepEqual(await shown(), ['Version 1']);
+  });
+
   it('keeps the newest version when the popup and the background accept versions at once', async () => {
     relay.blob = await vault(1);
     await sync();
