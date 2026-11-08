@@ -347,8 +347,9 @@ its clock and the relay's `Date` header differ by more than 30 seconds.
 - **Tokens** are compared by hash, in constant time.
 - **Privacy:** the relay MUST NOT log IP addresses together with channel or vault ids, and MUST
   NOT log tokens or bodies at all.
-- **Rate limits:** the relay SHOULD limit, per IP address, channel creation and claims to 30 and
-  vault creation to 20 an hour, and per vault, downloads to 120 and uploads to 240 an hour.
+- **Rate limits:** the relay SHOULD limit, per IP address (per /64 for IPv6), channel creation and
+  claims to 30 and vault creation to 20 an hour, and per vault, downloads to 120 and uploads to 240
+  an hour.
 
 ### 6.2 Pairing channels
 

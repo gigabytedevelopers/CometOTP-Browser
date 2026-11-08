@@ -43,6 +43,10 @@ Either way, put it behind a reverse proxy that terminates HTTPS, and set `TRUST_
 | `LIMIT_DOWNLOADS_PER_HOUR` | `120` | Downloads, per vault. |
 | `LIMIT_UPLOADS_PER_HOUR` | `240` | Uploads, per vault. |
 
+A client address is an IPv4 address, or the /64 an IPv6 address is in: a subscriber is usually
+given a whole /64, and could otherwise take a new address for every request. The relay keeps up to
+100,000 counts at a time (about 15 MB); beyond that it forgets the oldest first.
+
 ## What it keeps, and what it does not
 
 - **Vaults:** the id, the hashes of the write and read tokens, the version, the blob, when it was
