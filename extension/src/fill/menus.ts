@@ -1,6 +1,7 @@
 // The background's part in filling. The content script asks it to open a menu; the menu page
 // claims the menu, asks what to list, and says which service the person chose. The background
 // then computes the code, links the service to the site and sends the code to the field's frame.
+// The menu page can also take a service off what its site is offered, which only changes links.
 // It also passes on the menu's size and its closing: Firefox does not deliver messages from the
 // menu page straight to the content script, and this way only the menu's own page can do either.
 // So the menu page, in a frame on the site, holds names only, never the local key or a secret,
@@ -15,7 +16,7 @@ import { generateCode, randomBytes, toBase64Url, type Service } from '@cometotp/
 import { localKey } from '../lock/lock.js';
 import { pairingRecord } from '../sync/store.js';
 import { services } from '../sync/sync.js';
-import { addLink, readLinks } from './links.js';
+import { addLink, readHidden, readLinks, removeLink } from './links.js';
 import type { ClaimedMenu, FillClose, FillCode, FillOpened, FillSize, MenuEntry, MenuList } from './messages.js';
 import { linkedElsewhere, offer, sameSite, siteHost, within, type Links } from './sites.js';
 
@@ -115,7 +116,7 @@ export async function listMenu(name: string, sender: chrome.runtime.MessageSende
   const data = await services();
   if (!data?.payload.services.length) return nothing('empty');
   const links = await readLinks(key);
-  const { linked, matching, others } = offer(data.payload.services, links, menu.host);
+  const { linked, matching, others } = offer(data.payload.services, links, menu.host, await readHidden(key));
   const list = (some: Service[]) => some.map((service) => entry(service, links, menu.host));
   return { state: 'ready', linked: list(linked), matching: list(matching), others: list(others) };
 }
@@ -145,5 +146,15 @@ export async function chooseService(name: string, id: string, sender: chrome.run
   });
   const fill: FillCode = { type: 'fill-code', menu: name, code };
   await chrome.tabs.sendMessage(menu.tabId, fill, { frameId: menu.frameId });
+  return true;
+}
+
+/** Stops offering a service on the menu's site; the menu stays open and lists again. */
+export async function forgetService(name: string, id: string, sender: chrome.runtime.MessageSender): Promise<boolean> {
+  const menu = await claimed(name, sender);
+  const key = await localKey();
+  const service = (await services())?.payload.services.find((s) => s.id === id);
+  if (!menu || !key || !service) return false;
+  await removeLink(key, service, menu.host);
   return true;
 }

@@ -85,6 +85,11 @@ p {
   padding: 0;
 }
 
+.services li {
+  display: flex;
+  align-items: center;
+}
+
 /* The rest of the services scroll on their own, so the search stays in view. */
 .services.others {
   max-height: 200px;
@@ -117,6 +122,30 @@ p {
 .service:hover,
 .service:focus-visible {
   background: var(--field);
+  outline: none;
+}
+
+/* Takes a service off what this site is offered. */
+.forget {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin: 0 0 0 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.forget:hover,
+.forget:focus-visible {
+  background: var(--field);
+  color: var(--text);
   outline: none;
 }
 

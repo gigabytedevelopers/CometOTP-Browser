@@ -3,7 +3,8 @@
 // and lists the rest below, which the search narrows. It holds names only: the background computes
 // the code of the service chosen, links it to the site and sends the code to the field
 // (src/fill/menus.ts). A service not linked to this site yet is filled here only once the person
-// confirms, as this site may be posing as the one it belongs to.
+// confirms, as this site may be posing as the one it belongs to. A service offered here that does
+// not belong can be taken off the site, and stays among the rest.
 import { badgeColor, initials, matches } from '../popup/format.js';
 import {
   isClaimedMenu,
@@ -12,6 +13,7 @@ import {
   type FillChoose,
   type FillClaim,
   type FillClose,
+  type FillForget,
   type FillList,
   type FillSize,
   type MenuEntry,
@@ -30,6 +32,7 @@ const message = element('message');
 const choose = element('choose');
 const offered = element<HTMLUListElement>('offered');
 const none = element('none');
+const removed = element('removed');
 const search = element<HTMLInputElement>('search');
 const othersTitle = element('others-title');
 const found = element<HTMLUListElement>('found');
@@ -63,7 +66,8 @@ function display(service: MenuEntry): string {
   return service.issuer && service.label ? `${service.issuer} (${service.label})` : service.issuer || service.label;
 }
 
-function row(service: MenuEntry, pick: (service: MenuEntry) => void): HTMLLIElement {
+/** A service's row; with `remove`, a button that takes it off this site too. */
+function row(service: MenuEntry, pick: (service: MenuEntry) => void, remove?: (service: MenuEntry) => void): HTMLLIElement {
   const item = document.createElement('li');
   const button = document.createElement('button');
   button.type = 'button';
@@ -89,6 +93,16 @@ function row(service: MenuEntry, pick: (service: MenuEntry) => void): HTMLLIElem
   button.setAttribute('aria-label', `Fill the code for ${display(service)}`);
   button.addEventListener('click', () => pick(service));
   item.append(button);
+  if (remove) {
+    const forget = document.createElement('button');
+    forget.type = 'button';
+    forget.className = 'forget';
+    forget.textContent = '\u00d7';
+    forget.title = 'Not for this site';
+    forget.setAttribute('aria-label', `Stop offering ${display(service)} here`);
+    forget.addEventListener('click', () => remove(service));
+    item.append(forget);
+  }
   return item;
 }
 
@@ -99,7 +113,9 @@ async function fill(service: MenuEntry): Promise<void> {
   if (done !== true) say('The code could not be filled. Click the CometOTP button in the field again.');
 }
 
-function offerServices(claimed: ClaimedMenu, list: MenuList): void {
+function offerServices(claimed: ClaimedMenu, first: MenuList): void {
+  let list = first;
+
   const pick = (service: MenuEntry) => {
     if (service.here) {
       void fill(service);
@@ -124,12 +140,30 @@ function offerServices(claimed: ClaimedMenu, list: MenuList): void {
     confirmCancel.focus();
   };
 
+  // A wrong fill links a service to a site it does not belong to, and a name can match a site it
+  // has nothing to do with: either way the person takes it off here, and it joins the rest.
+  const remove = async (service: MenuEntry) => {
+    const ask: FillForget = { type: 'fill-forget', menu, service: service.id };
+    const done = await chrome.runtime.sendMessage(ask).catch(() => false);
+    const again: FillList = { type: 'fill-list', menu };
+    const next = done === true ? await chrome.runtime.sendMessage(again).catch(() => null) : null;
+    if (!isMenuList(next) || next.state !== 'ready') {
+      say('The service could not be taken off this site. Click the CometOTP button in the field again.');
+      return;
+    }
+    list = next;
+    removed.hidden = false;
+    removed.textContent = `${display(service)} is no longer offered on ${claimed.host}. To fill it here after all, choose it below.`;
+    render();
+    search.focus();
+  };
+
   const render = () => {
     const query = search.value.trim();
     const shows = (service: MenuEntry) => !query || matches(service, query);
     const offeredHere = [...list.linked, ...list.matching];
     const shown = offeredHere.filter(shows);
-    offered.replaceChildren(...shown.map((service) => row(service, pick)));
+    offered.replaceChildren(...shown.map((service) => row(service, pick, (s) => void remove(s))));
     none.hidden = offeredHere.length > 0 || query !== '';
     const rest = list.others.filter(shows);
     found.replaceChildren(...rest.map((service) => row(service, pick)));

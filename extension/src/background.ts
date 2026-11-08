@@ -8,8 +8,8 @@
 // (tools/load-test.ts relies on it). If the person turned usage statistics on, it sends them,
 // for its pages and for the codes it fills.
 import { updateContentScript } from './fill/access.js';
-import { chooseService, claimMenu, listMenu, mayFill, openMenu, passOn } from './fill/menus.js';
-import { isFillChoose, isFillClaim, isFillClose, isFillHere, isFillList, isFillOpen, isFillSize } from './fill/messages.js';
+import { chooseService, claimMenu, forgetService, listMenu, mayFill, openMenu, passOn } from './fill/menus.js';
+import { isFillChoose, isFillClaim, isFillClose, isFillForget, isFillHere, isFillList, isFillOpen, isFillSize } from './fill/messages.js';
 import { lock } from './lock/lock.js';
 import { isPing, isUsage, type Pong } from './messages.js';
 import { autoLockMinutes } from './settings/prefs.js';
@@ -72,6 +72,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       },
       () => sendResponse(false),
     );
+    return true;
+  } else if (isFillForget(message)) {
+    void forgetService(message.menu, message.service, sender).then(sendResponse, () => sendResponse(false));
     return true;
   } else if (isFillSize(message) || isFillClose(message)) {
     void passOn(message, sender);

@@ -64,6 +64,16 @@ export interface FillChoose {
   service: string;
 }
 
+/**
+ * Menu page → background: stop offering this service on the menu's site, where the person says it
+ * does not belong. The answer is a boolean.
+ */
+export interface FillForget {
+  type: 'fill-forget';
+  menu: string;
+  service: string;
+}
+
 /** Menu page → background → content script: how tall the menu is. */
 export interface FillSize {
   type: 'fill-size';
@@ -114,6 +124,10 @@ export function isMenuList(value: unknown): value is MenuList {
 
 export function isFillChoose(value: unknown): value is FillChoose {
   return isObject(value) && value.type === 'fill-choose' && typeof value.menu === 'string' && typeof value.service === 'string';
+}
+
+export function isFillForget(value: unknown): value is FillForget {
+  return isObject(value) && value.type === 'fill-forget' && typeof value.menu === 'string' && typeof value.service === 'string';
 }
 
 export function isFillSize(value: unknown): value is FillSize {
