@@ -85,6 +85,19 @@ p {
   padding: 0;
 }
 
+/* The rest of the services scroll on their own, so the search stays in view. */
+.services.others {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.section {
+  margin: 8px 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
 .service {
   display: flex;
   align-items: center;

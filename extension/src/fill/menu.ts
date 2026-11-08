@@ -1,9 +1,9 @@
 // The menu the CometOTP button in a code field opens: an extension page, in a frame the site
-// cannot look into. It lists the services linked to the site, then those whose issuer names it,
-// and finds the rest by search. It holds names only: the background computes the code of the
-// service chosen, links it to the site and sends the code to the field (src/fill/menus.ts). A
-// service not linked to this site yet is filled here only once the person confirms, as this site
-// may be posing as the one it belongs to.
+// cannot look into. It offers the services linked to the site, then those whose issuer names it,
+// and lists the rest below, which the search narrows. It holds names only: the background computes
+// the code of the service chosen, links it to the site and sends the code to the field
+// (src/fill/menus.ts). A service not linked to this site yet is filled here only once the person
+// confirms, as this site may be posing as the one it belongs to.
 import { badgeColor, initials, matches } from '../popup/format.js';
 import {
   isClaimedMenu,
@@ -31,14 +31,13 @@ const choose = element('choose');
 const offered = element<HTMLUListElement>('offered');
 const none = element('none');
 const search = element<HTMLInputElement>('search');
+const othersTitle = element('others-title');
 const found = element<HTMLUListElement>('found');
+const noMatch = element('no-match');
 const confirmPanel = element('confirm');
 const confirmText = element('confirm-text');
 const confirmFill = element<HTMLButtonElement>('confirm-fill');
 const confirmCancel = element<HTMLButtonElement>('confirm-cancel');
-
-/** How many services a search shows. */
-const FOUND = 6;
 
 const menu = location.hash.slice(1);
 
@@ -125,17 +124,25 @@ function offerServices(claimed: ClaimedMenu, list: MenuList): void {
     confirmCancel.focus();
   };
 
-  const shown = [...list.linked, ...list.matching];
-  offered.replaceChildren(...shown.map((service) => row(service, pick)));
-  none.hidden = shown.length > 0;
-  none.textContent = `No service is linked to ${claimed.host} yet. Search for it; next time it will be listed here.`;
-  search.addEventListener('input', () => {
+  const render = () => {
     const query = search.value.trim();
-    const results = query ? list.others.filter((service) => matches(service, query)).slice(0, FOUND) : [];
-    found.replaceChildren(...results.map((service) => row(service, pick)));
-  });
+    const shows = (service: MenuEntry) => !query || matches(service, query);
+    const offeredHere = [...list.linked, ...list.matching];
+    const shown = offeredHere.filter(shows);
+    offered.replaceChildren(...shown.map((service) => row(service, pick)));
+    none.hidden = offeredHere.length > 0 || query !== '';
+    const rest = list.others.filter(shows);
+    found.replaceChildren(...rest.map((service) => row(service, pick)));
+    othersTitle.hidden = !rest.length;
+    othersTitle.textContent = offeredHere.length ? 'Other services' : 'Your services';
+    noMatch.hidden = !query || shown.length + rest.length > 0;
+  };
+
+  none.textContent = `No service is linked to ${claimed.host} yet. Choose it below; from then on it is offered here first.`;
+  search.addEventListener('input', render);
+  render();
   choose.hidden = false;
-  if (shown.length) offered.querySelector('button')?.focus();
+  if (list.linked.length + list.matching.length) offered.querySelector<HTMLButtonElement>('.service')?.focus();
   else search.focus();
 }
 

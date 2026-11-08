@@ -18,7 +18,9 @@
         <ul id="offered" class="services" aria-label="Services for this site"></ul>
         <p id="none" class="hint" hidden></p>
         <input id="search" type="search" placeholder="Search all services" aria-label="Search all services" autocomplete="off" spellcheck="false">
-        <ul id="found" class="services" aria-label="Services found"></ul>
+        <p id="others-title" class="section" hidden></p>
+        <ul id="found" class="services others" aria-labelledby="others-title"></ul>
+        <p id="no-match" class="hint" hidden>No service matches your search.</p>
       </div>
       <div id="confirm" hidden>
         <p id="confirm-text" class="message"></p>
