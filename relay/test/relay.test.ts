@@ -18,7 +18,7 @@ import {
 } from '@cometotp/protocol';
 
 import { MAX_FRAME, MAX_MESSAGES, createRelay, type Relay } from '../src/app.js';
-import { DEFAULT_LIMITS, type RelayConfig } from '../src/config.js';
+import { DEFAULT_CAPS, DEFAULT_LIMITS, type Caps, type RateLimits, type RelayConfig } from '../src/config.js';
 import { createRelayServer } from '../src/server.js';
 import { RelayStore } from '../src/store.js';
 
@@ -38,11 +38,13 @@ const config: RelayConfig = {
   trustProxy: true,
   longPollMs: 300,
   limits: { ...DEFAULT_LIMITS },
+  caps: { ...DEFAULT_CAPS },
   version: '1.2.3',
 };
 
-function start(limits = DEFAULT_LIMITS): Promise<void> {
+function start(limits: RateLimits = DEFAULT_LIMITS, caps: Caps = DEFAULT_CAPS): Promise<void> {
   config.limits = { ...limits };
+  config.caps = { ...caps };
   store = new RelayStore(':memory:');
   relay = createRelay(config, store, () => clock);
   server = createRelayServer(relay);
@@ -130,6 +132,32 @@ const id16 = () => toBase64Url(randomBytes(16));
 const token32 = () => randomBytes(32);
 const hash = (bytes: Uint8Array) => toBase64Url(createHash('sha256').update(bytes).digest());
 const frame = (length = 100) => ({ m: toBase64Url(randomBytes(length)) });
+
+interface TestVault {
+  id: string;
+  write: string;
+  read: string;
+  key: Uint8Array<ArrayBuffer>;
+}
+
+async function vault(ip?: string): Promise<TestVault> {
+  const id = id16();
+  const write = token32();
+  const read = token32();
+  const key = randomBytes(32);
+  const r = await call('POST', '/v1/vaults', { ip, json: { id, write: hash(write), read: hash(read) } });
+  assert.equal(r.status, 201);
+  return { id, write: toBase64Url(write), read: toBase64Url(read), key: new Uint8Array(key) as Uint8Array<ArrayBuffer> };
+}
+
+/** A blob of [blocks] padding blocks, its phone's name made long enough to need them. */
+const blob = (v: TestVault, version: number, blocks = 1) =>
+  sealVault(
+    v.key,
+    fromBase64Url(v.id),
+    version,
+    buildPayload({ v: 1, phone: 'Pixel 7'.padEnd((blocks - 1) * PAD_BLOCK, '7'), updated: 0, services: [] }),
+  );
 
 describe('relay', () => {
   before(() => start());
@@ -347,20 +375,6 @@ describe('relay', () => {
   });
 
   describe('vaults', () => {
-    async function vault() {
-      const id = id16();
-      const write = token32();
-      const read = token32();
-      const key = randomBytes(32);
-      const r = await call('POST', '/v1/vaults', { json: { id, write: hash(write), read: hash(read) } });
-      assert.equal(r.status, 201);
-      return { id, write: toBase64Url(write), read: toBase64Url(read), key: new Uint8Array(key) as Uint8Array<ArrayBuffer> };
-    }
-
-    const payload = buildPayload({ v: 1, phone: 'Pixel 7', updated: 0, services: [] });
-    const blob = (v: { id: string; key: Uint8Array<ArrayBuffer> }, version: number) =>
-      sealVault(v.key, fromBase64Url(v.id), version, payload);
-
     it('creates a vault once per id and checks the request', async () => {
       const v = await vault();
       const again = await call('POST', '/v1/vaults', { json: { id: v.id, write: hash(token32()), read: hash(token32()) } });
@@ -481,6 +495,55 @@ describe('relay', () => {
       clock += 181 * DAY;
       relay.housekeeping();
       assert.equal((await call('GET', `/v1/vault/${read.id}`, { token: read.read })).status, 404);
+    });
+  });
+
+  describe('caps', () => {
+    const block = 40 + PAD_BLOCK;
+
+    before(async () => {
+      await stop();
+      await start(DEFAULT_LIMITS, { vaults: 2, vaultBytes: 3 * block, channels: 2 });
+    });
+    after(async () => {
+      await stop();
+      await start();
+    });
+
+    const full = { status: 503, json: { error: 'at_capacity' } };
+    const status = ({ status, json }: { status: number; json: unknown }) => ({ status, json });
+
+    it('makes no more channels than its cap until old ones are forgotten', async () => {
+      assert.equal((await call('PUT', `/v1/pair/${id16()}`)).status, 201);
+      assert.equal((await call('PUT', `/v1/pair/${id16()}`)).status, 201);
+      assert.deepEqual(status(await call('PUT', `/v1/pair/${id16()}`)), full);
+      clock += 20 * MINUTE;
+      relay.housekeeping();
+      assert.equal((await call('PUT', `/v1/pair/${id16()}`)).status, 201);
+    });
+
+    it('keeps no more vaults, or bytes of blobs, than its caps', async () => {
+      const newVault = () => call('POST', '/v1/vaults', { json: { id: id16(), write: hash(token32()), read: hash(token32()) } });
+      const put = async (v: TestVault, version: number, blocks: number) =>
+        status(await call('PUT', `/v1/vault/${v.id}`, { token: v.write, body: await blob(v, version, blocks) }));
+      const stored = (version: number) => ({ status: 200, json: { version, last_read: null } });
+
+      const a = await vault();
+      const b = await vault();
+      assert.deepEqual(status(await newVault()), full);
+
+      assert.deepEqual(await put(a, 1, 1), stored(1));
+      assert.deepEqual(await put(b, 1, 1), stored(1));
+      assert.deepEqual(await put(a, 2, 2), stored(2));
+      assert.deepEqual(store.totals(), { vaults: 2, vaultBytes: 40 + 2 * PAD_BLOCK + block });
+      // A fourth block would be one too many, but a blob no larger than the last always fits.
+      assert.deepEqual(await put(b, 2, 2), full);
+      assert.deepEqual(await put(b, 2, 1), stored(2));
+
+      assert.equal((await call('DELETE', `/v1/vault/${a.id}`, { token: a.read })).status, 204);
+      assert.deepEqual(store.totals(), { vaults: 1, vaultBytes: block });
+      assert.deepEqual(await put(b, 3, 2), stored(3));
+      assert.equal((await newVault()).status, 201);
     });
   });
 

@@ -343,6 +343,7 @@ its clock and the relay's `Date` header differ by more than 30 seconds.
 | 410 | `gone` | The vault was deleted (§6.3). |
 | 413 | `too_large` | The body is over its limit. |
 | 429 | `rate_limited` | Too many requests; `Retry-After` says when to try again. |
+| 503 | `at_capacity` | The relay holds as many channels, vaults or bytes as it allows; try again later. |
 
 - **Tokens** are compared by hash, in constant time.
 - **Privacy:** the relay MUST NOT log IP addresses together with channel or vault ids, and MUST

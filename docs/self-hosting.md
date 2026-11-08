@@ -12,7 +12,8 @@ renews the HTTPS certificate on its own. CI follows the same steps on every chan
 ## What you need
 
 - A Linux server that is always on, with a public address. Any small VPS will do: the relay uses
-  well under 100 MB of memory. Both `amd64` and `arm64` are supported.
+  well under 100 MB of memory, and with its default caps its data stays under about 2.5 GB. Both
+  `amd64` and `arm64` are supported.
 - [Docker Engine with the Compose plugin](https://docs.docker.com/engine/install/).
 - A domain name for the relay, such as `relay.example.com`.
 - Ports 80 and 443 open to the internet. Caddy needs port 80 to get its certificate, and redirects
@@ -129,6 +130,18 @@ address in an office behind one address:
 
 Keep `TRUST_PROXY` on behind Caddy: without it every request seems to come from Caddy, and all
 your users share one rate limit.
+
+The relay also caps what it keeps in all, so that nobody can fill your disk: by default 100,000
+vaults, 2 GB of them, and 10,000 pairing channels. At a cap, new pairings fail until old ones run
+out, while browsers already paired keep syncing as long as their vaults do not grow. If your relay
+serves more than that, and the disk has room, raise them:
+
+```yaml
+    environment:
+      TRUST_PROXY: "1"
+      MAX_VAULTS: "500000"
+      MAX_VAULT_MB: "10240"
+```
 
 ## Behind another reverse proxy
 

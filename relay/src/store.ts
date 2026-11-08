@@ -38,8 +38,15 @@ export interface Message {
 export type PutResult =
   | { status: 'stored'; lastReadDay: number | null }
   | { status: 'stale'; version: number }
+  | { status: 'full' }
   | { status: 'gone' }
   | { status: 'not_found' };
+
+/** How many vaults there are, and the bytes of all their blobs. */
+export interface VaultTotals {
+  vaults: number;
+  vaultBytes: number;
+}
 
 export interface HousekeepingResult {
   vaultsDeleted: number;
@@ -84,6 +91,21 @@ CREATE TABLE IF NOT EXISTS messages (
   body BLOB NOT NULL,
   PRIMARY KEY (channel, direction, seq)
 ) STRICT;
+-- Kept by the triggers below, so that the caps cost no count of every vault.
+CREATE TABLE IF NOT EXISTS totals (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  vaults INTEGER NOT NULL,
+  vault_bytes INTEGER NOT NULL
+) STRICT;
+CREATE TRIGGER IF NOT EXISTS vault_added AFTER INSERT ON vaults BEGIN
+  UPDATE totals SET vaults = vaults + 1, vault_bytes = vault_bytes + coalesce(length(new.blob), 0);
+END;
+CREATE TRIGGER IF NOT EXISTS vault_stored AFTER UPDATE OF blob ON vaults BEGIN
+  UPDATE totals SET vault_bytes = vault_bytes - coalesce(length(old.blob), 0) + coalesce(length(new.blob), 0);
+END;
+CREATE TRIGGER IF NOT EXISTS vault_deleted AFTER DELETE ON vaults BEGIN
+  UPDATE totals SET vaults = vaults - 1, vault_bytes = vault_bytes - coalesce(length(old.blob), 0);
+END;
 `;
 
 function bytes(value: unknown): Uint8Array {
@@ -102,9 +124,16 @@ export class RelayStore {
   constructor(path: string) {
     this.db = new DatabaseSync(path);
     if (path !== ':memory:') this.db.exec('PRAGMA journal_mode = WAL;');
-    this.db.exec(SCHEMA);
+    this.transaction(() => {
+      this.db.exec(SCHEMA);
+      // A database from before the totals were kept has them counted once.
+      if (!this.db.prepare('SELECT 1 FROM totals').get()) {
+        this.db.exec('INSERT INTO totals SELECT 1, count(*), coalesce(sum(length(blob)), 0) FROM vaults');
+      }
+    });
     const prepare = (sql: string) => this.db.prepare(sql);
     this.statements = {
+      totals: prepare('SELECT vaults, vault_bytes FROM totals'),
       // Everything but the blob, which only a download needs: length() takes its size without reading it.
       getVault: prepare(
         'SELECT write_hash, read_hash, version, length(blob) AS size, created_at, last_read_day FROM vaults WHERE id = ?',
@@ -118,6 +147,8 @@ export class RelayStore {
       insertTombstone: prepare('INSERT OR REPLACE INTO vault_tombstones (id_hash, deleted_at) VALUES (?, ?)'),
       getChannel: prepare('SELECT * FROM channels WHERE id = ?'),
       insertChannel: prepare('INSERT INTO channels (id, browser_hash, created_at) VALUES (?, ?, ?)'),
+      // Unlike vaults, channels are few enough to count: no more than their cap, for 20 minutes each.
+      countChannels: prepare('SELECT COUNT(*) AS n FROM channels'),
       claimChannel: prepare(
         'UPDATE channels SET phone_hash = ? WHERE id = ? AND phone_hash IS NULL AND deleted = 0 AND created_at > ?',
       ),
@@ -181,24 +212,33 @@ export class RelayStore {
     return this.statements.isTombstone!.get(idHash(id)) !== undefined;
   }
 
-  /** False if the id is taken or belonged to a deleted vault. */
-  createVault(id: string, writeHash: Uint8Array, readHash: Uint8Array, now: number): boolean {
+  totals(): VaultTotals {
+    const row = this.statements.totals!.get() as { vaults: number; vault_bytes: number };
+    return { vaults: Number(row.vaults), vaultBytes: Number(row.vault_bytes) };
+  }
+
+  /** 'exists' if the id is taken or belonged to a deleted vault; 'full' if there are [max] vaults. */
+  createVault(id: string, writeHash: Uint8Array, readHash: Uint8Array, now: number, max: number): 'created' | 'exists' | 'full' {
     return this.transaction(() => {
-      if (this.statements.getVault!.get(id) || this.isDeletedVault(id)) return false;
+      if (this.statements.getVault!.get(id) || this.isDeletedVault(id)) return 'exists';
+      if (this.totals().vaults >= max) return 'full';
       this.statements.insertVault!.run(id, writeHash, readHash, now);
-      return true;
+      return 'created';
     });
   }
 
   /**
    * Stores [blob] as [version] unless the stored version is as high ('stale', with the stored
-   * version). The vault may have been deleted since the caller found it: 'gone' then.
+   * version), or it is larger than the blob it replaces and would take the blobs past [maxBytes]
+   * ('full'). The vault may have been deleted since the caller found it: 'gone' then.
    */
-  putBlob(id: string, version: number, blob: Uint8Array): PutResult {
+  putBlob(id: string, version: number, blob: Uint8Array, maxBytes: number): PutResult {
     return this.transaction(() => {
       const current = this.getVault(id);
       if (!current) return { status: this.isDeletedVault(id) ? 'gone' : 'not_found' };
       if (version <= current.version) return { status: 'stale', version: current.version };
+      const growth = blob.length - (current.size ?? 0);
+      if (growth > 0 && this.totals().vaultBytes + growth > maxBytes) return { status: 'full' };
       this.statements.putBlob!.run(version, blob, id);
       return { status: 'stored', lastReadDay: current.lastReadDay };
     });
@@ -229,12 +269,16 @@ export class RelayStore {
     };
   }
 
-  /** False if the id is in use, or was within its lifetime and the grace after it. */
-  createChannel(id: string, browserHash: Uint8Array, now: number): boolean {
+  /**
+   * 'exists' if the id is in use, or was within its lifetime and the grace after it; 'full' if
+   * there are [max] channels, open or not yet forgotten.
+   */
+  createChannel(id: string, browserHash: Uint8Array, now: number, max: number): 'created' | 'exists' | 'full' {
     return this.transaction(() => {
-      if (this.statements.getChannel!.get(id)) return false;
+      if (this.statements.getChannel!.get(id)) return 'exists';
+      if (Number((this.statements.countChannels!.get() as { n: number }).n) >= max) return 'full';
       this.statements.insertChannel!.run(id, browserHash, now);
-      return true;
+      return 'created';
     });
   }
 

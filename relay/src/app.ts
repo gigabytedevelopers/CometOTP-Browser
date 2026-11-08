@@ -53,6 +53,7 @@ const unauthorized = () => new HttpError(401, 'unauthorized');
 const notFound = () => new HttpError(404, 'not_found');
 const expired = () => new HttpError(410, 'expired');
 const gone = () => new HttpError(410, 'gone');
+const atCapacity = () => new HttpError(503, 'at_capacity');
 
 function send(res: ServerResponse, status: number, body?: unknown, headers: Record<string, string> = {}): void {
   if (res.headersSent || res.destroyed) return;
@@ -232,7 +233,9 @@ export function createRelay(config: RelayConfig, store: RelayStore, now: () => n
   function createChannel(req: IncomingMessage, res: ServerResponse, id: string): void {
     limit(`channels:${clientKey(req)}`, config.limits.channels);
     const token = randomBytes(32);
-    if (!store.createChannel(id, sha256(token), now())) throw new HttpError(409, 'exists');
+    const result = store.createChannel(id, sha256(token), now(), config.caps.channels);
+    if (result === 'exists') throw new HttpError(409, 'exists');
+    if (result === 'full') throw atCapacity();
     send(res, 201, { token: toBase64Url(token) });
   }
 
@@ -303,7 +306,9 @@ export function createRelay(config: RelayConfig, store: RelayStore, now: () => n
     const id = checkId(typeof body.id === 'string' ? body.id : undefined, 16);
     const writeHash = hashField(body, 'write');
     const readHash = hashField(body, 'read');
-    if (!store.createVault(id, writeHash, readHash, now())) throw new HttpError(409, 'exists');
+    const result = store.createVault(id, writeHash, readHash, now(), config.caps.vaults);
+    if (result === 'exists') throw new HttpError(409, 'exists');
+    if (result === 'full') throw atCapacity();
     send(res, 201, {});
   }
 
@@ -327,10 +332,11 @@ export function createRelay(config: RelayConfig, store: RelayStore, now: () => n
       throw error;
     }
     // The vault was checked before its blob arrived, and may have been deleted since.
-    const result = store.putBlob(id, version, blob);
+    const result = store.putBlob(id, version, blob, config.caps.vaultBytes);
     if (result.status === 'gone') throw gone();
     if (result.status === 'not_found') throw notFound();
     if (result.status === 'stale') throw new HttpError(409, 'stale_version', { version: result.version });
+    if (result.status === 'full') throw atCapacity();
     send(res, 200, { version, last_read: result.lastReadDay === null ? null : dayString(result.lastReadDay) });
   }
 
