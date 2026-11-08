@@ -73,6 +73,18 @@ export function forgetLink(localKey: Bytes, service: string, host: string): Prom
   });
 }
 
+/**
+ * Forgets the sites of every service not in `ids`, the services of a version of the vault just
+ * accepted: the phone removed the others, or stopped sharing them with the browser.
+ */
+export function keepServices(localKey: Bytes, ids: ReadonlySet<string>): Promise<void> {
+  return exclusively(async () => {
+    const before = { links: await readLinks(localKey), hidden: await readHidden(localKey) };
+    const kept = (links: Links): Links => Object.fromEntries(Object.entries(links).filter(([id]) => ids.has(id)));
+    await update(localKey, before, { links: kept(before.links), hidden: kept(before.hidden) });
+  });
+}
+
 /** Stops hiding `service` on `host`, from the settings page, so its name offers it there again. */
 export function unhide(localKey: Bytes, service: string, host: string): Promise<void> {
   return exclusively(async () => {

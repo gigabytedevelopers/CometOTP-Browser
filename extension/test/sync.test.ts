@@ -5,6 +5,7 @@ import { beforeEach, describe, it } from 'node:test';
 
 import { MAX_BLOB_LENGTH, PAD_BLOCK, blobVersion, buildPayload, concat, randomBytes, sealVault, toBase64Url, type Bytes, type Payload } from '@cometotp/protocol';
 
+import { addLink, readHidden, readLinks, removeLink } from '../src/fill/links.js';
 import { clearSessionKey, getRecord, putRecord, setSessionKey } from '../src/lock/storage.js';
 import { pairingRecord, storePairing } from '../src/sync/store.js';
 import { acceptPending, disconnect, notice, services, sync, syncStatus } from '../src/sync/sync.js';
@@ -48,11 +49,15 @@ class Relay {
   }
 }
 
+/** The vault's one service, and one it does not have. */
+const SERVICE = 'AAAAAAAAAAAAAAAA';
+const GONE = 'BBBBBBBBBBBBBBBB';
+
 const payload = (issuer: string): Payload => ({
   v: 1,
   phone: 'Pixel 7',
   updated: 1_791_763_200,
-  services: [{ id: 'AAAAAAAAAAAAAAAA', type: 'totp', secret: 'JBSWY3DPEHPK3PXP', algorithm: 'SHA1', digits: 6, period: 30, issuer, label: 'alice' }],
+  services: [{ id: SERVICE, type: 'totp', secret: 'JBSWY3DPEHPK3PXP', algorithm: 'SHA1', digits: 6, period: 30, issuer, label: 'alice' }],
 });
 
 let indexedDB: FakeIndexedDB;
@@ -273,5 +278,32 @@ describe('sync', () => {
     assert.equal((await pairingRecord())?.version, 3);
     assert.deepEqual(await shown(), ['Version 3']);
     assert.equal(await getRecord('vault-pending'), undefined);
+  });
+
+  it('forgets the sites of services no longer in the vault once it takes a version without them', async () => {
+    relay.blob = await vault(1);
+    await sync();
+    await addLink(localKey, SERVICE, 'github.com');
+    await addLink(localKey, GONE, 'gitlab.com');
+    await removeLink(localKey, { id: GONE, issuer: 'GitHub' }, 'github.com');
+    // An unchanged vault leaves them.
+    await sync();
+    assert.deepEqual(Object.keys(await readLinks(localKey)), [SERVICE, GONE]);
+    relay.blob = await vault(2);
+    await sync();
+    assert.deepEqual(await readLinks(localKey), { [SERVICE]: ['github.com'] });
+    assert.deepEqual(await readHidden(localKey), {});
+  });
+
+  it('keeps the sites while the vault has a service it cannot read, which may be the one linked', async () => {
+    relay.blob = await vault(1);
+    await sync();
+    await addLink(localKey, GONE, 'gitlab.com');
+    const json = JSON.parse(buildPayload(payload('Version 2'))) as { services: unknown[] };
+    json.services.push({ id: GONE, type: 'a type from later' });
+    relay.blob = await sealVault(vaultKey, vaultId, 2, JSON.stringify(json));
+    await sync();
+    assert.deepEqual(await shown(), ['Version 2']);
+    assert.deepEqual(await readLinks(localKey), { [GONE]: ['gitlab.com'] });
   });
 });

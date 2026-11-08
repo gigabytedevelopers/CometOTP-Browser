@@ -10,6 +10,7 @@
 // also holds how far this computer's clock is from the relay's.
 import { blobVersion, fromBase64UrlOfLength, type Bytes, type Payload } from '@cometotp/protocol';
 
+import { keepServices } from '../fill/links.js';
 import { localKey } from '../lock/lock.js';
 import { deleteRecord, getRecord, putRecord, updateRecords } from '../lock/storage.js';
 import { RelayError, deleteVault, download } from './relay.js';
@@ -158,7 +159,15 @@ export async function acceptPending(): Promise<void> {
   );
   if (assessment.kind === 'accept') {
     // Only over an older copy: the popup and the background may both have checked versions.
-    if (await acceptVault(record.vault, assessment.version, pending.blob)) await setStatus({ warning: null });
+    if (await acceptVault(record.vault, assessment.version, pending.blob)) {
+      await setStatus({ warning: null });
+      // A service no longer in the vault takes with it the sites it was filled on or taken off,
+      // unless some services could not be read, as it may be one of them. Best effort: the next
+      // version tries again.
+      if (!assessment.skipped) {
+        await keepServices(key, new Set(assessment.payload.services.map((service) => service.id))).catch(() => undefined);
+      }
+    }
   } else if (assessment.kind === 'rollback') await setStatus({ warning: 'rollback' });
   else if (assessment.kind === 'bad') await setStatus({ warning: 'bad-vault' });
   else if (assessment.kind === 'newer-format') await setStatus({ warning: 'needs-update' });
