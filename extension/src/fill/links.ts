@@ -2,6 +2,11 @@
 // person took it off, where its name would otherwise offer it (design §4). Sealed under the local
 // key M like everything private: the sites someone signs in to are theirs. Both go with the
 // pairing: forgetPairing deletes them.
+//
+// The background and any page may change them at once: filling a code in one tab while removing a
+// site on the settings page, or removing two sites in quick succession. Each change reads both,
+// opens them and writes them back, so changes take turns under one lock, which the background and
+// the pages share (Web Locks); otherwise one could write back what another had just removed.
 import { fromUtf8, utf8, type Bytes } from '@cometotp/protocol';
 
 import { openPrivate, sealPrivate, type Sealed } from '../lock/crypto.js';
@@ -10,6 +15,14 @@ import { forgetHost, linkToSite, removeFromSite, type Links } from './sites.js';
 
 export const LINKS = 'site-links';
 export const HIDDEN = 'site-hidden';
+
+/** The Web Lock every change to the links or the hidden sites holds. */
+const LOCK = 'cometotp-site-links';
+
+/** Runs `change` once no other change to the links or hidden sites is under way, here or elsewhere. */
+function exclusively(change: () => Promise<void>): Promise<void> {
+  return navigator.locks.request(LOCK, change);
+}
 
 async function read(localKey: Bytes, name: string): Promise<Links> {
   const sealed = (await getRecord(name)) as Sealed | undefined;
@@ -36,27 +49,35 @@ async function update(localKey: Bytes, before: { links: Links; hidden: Links }, 
 }
 
 /** Links `service` to `host`, unless it already is, and stops hiding it there. */
-export async function addLink(localKey: Bytes, service: string, host: string): Promise<void> {
-  const before = { links: await readLinks(localKey), hidden: await readHidden(localKey) };
-  await update(localKey, before, linkToSite({ id: service }, before.links, before.hidden, host));
+export function addLink(localKey: Bytes, service: string, host: string): Promise<void> {
+  return exclusively(async () => {
+    const before = { links: await readLinks(localKey), hidden: await readHidden(localKey) };
+    await update(localKey, before, linkToSite({ id: service }, before.links, before.hidden, host));
+  });
 }
 
 /** Takes `service` off what the menu offers on `host` (src/fill/sites.ts, removeFromSite). */
-export async function removeLink(localKey: Bytes, service: { id: string; issuer: string }, host: string): Promise<void> {
-  const before = { links: await readLinks(localKey), hidden: await readHidden(localKey) };
-  await update(localKey, before, removeFromSite(service, before.links, before.hidden, host));
+export function removeLink(localKey: Bytes, service: { id: string; issuer: string }, host: string): Promise<void> {
+  return exclusively(async () => {
+    const before = { links: await readLinks(localKey), hidden: await readHidden(localKey) };
+    await update(localKey, before, removeFromSite(service, before.links, before.hidden, host));
+  });
 }
 
 /** Forgets that `service` was filled on `host`, from the settings page. */
-export async function forgetLink(localKey: Bytes, service: string, host: string): Promise<void> {
-  const links = await readLinks(localKey);
-  const next = forgetHost(links, service, host);
-  if (next[service]?.length !== links[service]?.length) await write(localKey, LINKS, next);
+export function forgetLink(localKey: Bytes, service: string, host: string): Promise<void> {
+  return exclusively(async () => {
+    const links = await readLinks(localKey);
+    const next = forgetHost(links, service, host);
+    if (next[service]?.length !== links[service]?.length) await write(localKey, LINKS, next);
+  });
 }
 
 /** Stops hiding `service` on `host`, from the settings page, so its name offers it there again. */
-export async function unhide(localKey: Bytes, service: string, host: string): Promise<void> {
-  const hidden = await readHidden(localKey);
-  const next = forgetHost(hidden, service, host);
-  if (next[service]?.length !== hidden[service]?.length) await write(localKey, HIDDEN, next);
+export function unhide(localKey: Bytes, service: string, host: string): Promise<void> {
+  return exclusively(async () => {
+    const hidden = await readHidden(localKey);
+    const next = forgetHost(hidden, service, host);
+    if (next[service]?.length !== hidden[service]?.length) await write(localKey, HIDDEN, next);
+  });
 }

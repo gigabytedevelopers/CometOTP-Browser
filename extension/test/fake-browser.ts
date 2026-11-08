@@ -209,10 +209,28 @@ export class FakeStorageArea {
   }
 }
 
-/** Puts a new, empty IndexedDB and storage.session where the extension's code looks for them. */
+/**
+ * navigator.locks, as far as the extension uses it: exclusive locks, each granted once those asked
+ * for before it under the same name are released, as its callback settles.
+ */
+export class FakeLockManager {
+  private readonly held = new Map<string, Promise<unknown>>();
+
+  request<T>(name: string, callback: () => T | Promise<T>): Promise<Awaited<T>> {
+    const granted = (this.held.get(name) ?? Promise.resolve()).then(() => callback());
+    this.held.set(
+      name,
+      granted.catch(() => undefined),
+    );
+    return granted as Promise<Awaited<T>>;
+  }
+}
+
+/** Puts a new, empty IndexedDB, storage.session and navigator.locks where the extension's code looks for them. */
 export function installBrowser(): { indexedDB: FakeIndexedDB; session: FakeStorageArea } {
   const indexedDB = new FakeIndexedDB();
   const session = new FakeStorageArea();
   Object.assign(globalThis, { indexedDB, chrome: { storage: { session } } });
+  Object.defineProperty(globalThis, 'navigator', { value: { locks: new FakeLockManager() }, configurable: true });
   return { indexedDB, session };
 }
