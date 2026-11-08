@@ -331,15 +331,14 @@ export function createRelay(config: RelayConfig, store: RelayStore, now: () => n
     if (result.status === 'gone') throw gone();
     if (result.status === 'not_found') throw notFound();
     if (result.status === 'stale') throw new HttpError(409, 'stale_version', { version: result.version });
-    const lastRead = store.getVault(id)?.lastReadDay ?? null;
-    send(res, 200, { version, last_read: lastRead === null ? null : dayString(lastRead) });
+    send(res, 200, { version, last_read: result.lastReadDay === null ? null : dayString(result.lastReadDay) });
   }
 
   function getVault(req: IncomingMessage, res: ServerResponse, id: string): void {
     const vault = existingVault(id);
     if (!sameHash(bearerHash(req), vault.readHash)) throw unauthorized();
     limit(`downloads:${id}`, config.limits.downloads);
-    if (vault.blob === null) throw new HttpError(404, 'empty');
+    if (vault.size === null) throw new HttpError(404, 'empty');
     store.markRead(id, now());
     const etag = `"${vault.version}"`;
     const wanted = String(req.headers['if-none-match'] ?? '')
@@ -350,9 +349,11 @@ export function createRelay(config: RelayConfig, store: RelayStore, now: () => n
       return;
     }
     if (res.headersSent || res.destroyed) return;
+    // Read only now, in the same turn as the vault, so it is there and of the version in the ETag.
+    const blob = store.getBlob(id)!;
     res
-      .writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': String(vault.blob.length), ETag: etag })
-      .end(Buffer.from(vault.blob));
+      .writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': String(blob.length), ETag: etag })
+      .end(Buffer.from(blob));
   }
 
   function deleteVault(req: IncomingMessage, res: ServerResponse, id: string): void {

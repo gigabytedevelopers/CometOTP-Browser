@@ -14,7 +14,8 @@ export interface Vault {
   writeHash: Uint8Array;
   readHash: Uint8Array;
   version: number;
-  blob: Uint8Array | null;
+  /** Length of the blob in bytes; null before the first upload. */
+  size: number | null;
   createdAt: number;
   /** UTC day number (days since the epoch) of the last download; null if never. */
   lastReadDay: number | null;
@@ -35,9 +36,10 @@ export interface Message {
 
 /** What became of an upload: stored, or why not. */
 export type PutResult =
-  | { status: 'stored' }
+  | { status: 'stored'; lastReadDay: number | null }
   | { status: 'stale'; version: number }
-  | { status: 'gone' | 'not_found' };
+  | { status: 'gone' }
+  | { status: 'not_found' };
 
 export interface HousekeepingResult {
   vaultsDeleted: number;
@@ -103,7 +105,11 @@ export class RelayStore {
     this.db.exec(SCHEMA);
     const prepare = (sql: string) => this.db.prepare(sql);
     this.statements = {
-      getVault: prepare('SELECT * FROM vaults WHERE id = ?'),
+      // Everything but the blob, which only a download needs: length() takes its size without reading it.
+      getVault: prepare(
+        'SELECT write_hash, read_hash, version, length(blob) AS size, created_at, last_read_day FROM vaults WHERE id = ?',
+      ),
+      getBlob: prepare('SELECT blob FROM vaults WHERE id = ?'),
       insertVault: prepare('INSERT INTO vaults (id, write_hash, read_hash, created_at) VALUES (?, ?, ?, ?)'),
       putBlob: prepare('UPDATE vaults SET version = ?, blob = ? WHERE id = ?'),
       markRead: prepare('UPDATE vaults SET last_read_day = ? WHERE id = ?'),
@@ -159,10 +165,16 @@ export class RelayStore {
       writeHash: bytes(row.write_hash),
       readHash: bytes(row.read_hash),
       version: Number(row.version),
-      blob: row.blob === null ? null : bytes(row.blob),
+      size: row.size === null ? null : Number(row.size),
       createdAt: Number(row.created_at),
       lastReadDay: row.last_read_day === null ? null : Number(row.last_read_day),
     };
+  }
+
+  /** The vault's blob; null if it has none, or there is no such vault. */
+  getBlob(id: string): Uint8Array | null {
+    const row = this.statements.getBlob!.get(id) as { blob: Uint8Array | null } | undefined;
+    return !row || row.blob === null ? null : bytes(row.blob);
   }
 
   isDeletedVault(id: string): boolean {
@@ -188,7 +200,7 @@ export class RelayStore {
       if (!current) return { status: this.isDeletedVault(id) ? 'gone' : 'not_found' };
       if (version <= current.version) return { status: 'stale', version: current.version };
       this.statements.putBlob!.run(version, blob, id);
-      return { status: 'stored' };
+      return { status: 'stored', lastReadDay: current.lastReadDay };
     });
   }
 

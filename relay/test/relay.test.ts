@@ -399,6 +399,21 @@ describe('relay', () => {
       assert.equal((await call('GET', `/v1/vault/${v.id}`, { token: v.write })).status, 401);
     });
 
+    it('reads the blob only to send it', async (t) => {
+      const v = await vault();
+      await call('PUT', `/v1/vault/${v.id}`, { token: v.write, body: await blob(v, 1) });
+      const reads = t.mock.method(store, 'getBlob');
+      assert.equal((await call('GET', `/v1/vault/${v.id}`, { token: v.write })).status, 401);
+      assert.equal((await call('GET', `/v1/vault/${v.id}`, { token: v.read, headers: { 'If-None-Match': '"1"' } })).status, 304);
+      const second = await blob(v, 2);
+      assert.equal((await call('PUT', `/v1/vault/${v.id}`, { token: v.write, body: second })).status, 200);
+      assert.equal(reads.mock.callCount(), 0);
+      const download = await call('GET', `/v1/vault/${v.id}`, { token: v.read });
+      assert.equal(download.headers.get('etag'), '"2"');
+      assert.deepEqual(download.raw, new Uint8Array(second));
+      assert.equal(reads.mock.callCount(), 1);
+    });
+
     it('refuses blobs of the wrong shape or size', async () => {
       const v = await vault();
       assert.deepEqual((await call('PUT', `/v1/vault/${v.id}`, { token: v.write, body: randomBytes(40 + PAD_BLOCK) })).json, {
