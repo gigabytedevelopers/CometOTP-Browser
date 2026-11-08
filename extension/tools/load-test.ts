@@ -267,8 +267,12 @@ async function exerciseSettings(evaluate: Evaluate, open: (path: string) => Prom
   await open('settings/settings.html');
   await attribute(evaluate, 'the settings page', 'document.body.dataset.autoLock', (v) => v === '15');
   await attribute(evaluate, 'usage statistics to be off', 'document.body.dataset.usage', (v) => v === (API_SECRET ? 'off' : 'unavailable'));
-  // Loaded from a folder, the build has no store to update from, and says so.
+  // Loaded from a folder, the build has no store to update from, and says so. Only Chromium can be
+  // asked to check its store (src/settings/update.ts); if Firefox gains it, offer it there too.
   await attribute(evaluate, 'the settings page to say this copy cannot update itself', 'document.body.dataset.update', (v) => v === 'folder');
+  const askable = await evaluate("String(typeof chrome.runtime.requestUpdateCheck === 'function')");
+  const firefox = await evaluate("String(location.protocol === 'moz-extension:')");
+  if (askable === firefox) throw new Error(`runtime.requestUpdateCheck is ${askable === 'true' ? '' : 'not '}there in ${firefox === 'true' ? 'Firefox' : 'Chromium'}`);
   if ((await evaluate(readRecord('usage-stats'))) !== 'null') throw new Error('Usage statistics have an id although nobody turned them on');
   const passkey = await evaluate('document.body.dataset.passkey');
   await evaluate(select(5));
