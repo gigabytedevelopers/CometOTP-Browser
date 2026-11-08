@@ -73,3 +73,34 @@ form button {
 #disconnect-confirm {
   margin-top: 10px;
 }
+
+/* The sites each service is linked to or hidden on, each with a button to forget it. */
+.sites,
+.sites ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sites > li {
+  margin-top: 10px;
+}
+
+.sites .site-service {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.sites ul li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
+.sites ul button {
+  flex: none;
+  margin: 0;
+}

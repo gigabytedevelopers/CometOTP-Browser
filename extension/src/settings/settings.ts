@@ -1,16 +1,20 @@
 // The settings page, which the popup and the browser's own extension menu open in a tab: this
 // browser's pairing (its relay, the name it gives the phone, and Disconnect), the lock (how soon it
-// locks, the password and the passkey), filling codes into sites, and usage statistics. In a tab,
+// locks, the password and the passkey), filling codes into sites and the sites each service is
+// linked to, and usage statistics. In a tab,
 // unlike the popup, Firefox shows the passkey and permission prompts without closing the page.
 // What each part says is in data attributes on the body, which the load test reads
 // (tools/load-test.ts).
+import type { Bytes, Service } from '@cometotp/protocol';
+
 import { hasSiteAccess, removeSiteAccess, requestSiteAccess } from '../fill/access.js';
+import { forgetLink, readHidden, readLinks, unhide } from '../fill/links.js';
 import { addPasskey, changePassword, localKey, onLockChange, passkeyCredential, removePasskey, state, type LockState } from '../lock/lock.js';
 import { PasskeyError, createPasskey, passkeysSupported } from '../lock/passkey.js';
 import { MIN_LENGTH, SCORE_LABELS, problem, score } from '../lock/strength.js';
 import { OFFICIAL_RELAY } from '../sync/relay.js';
 import { chosenRelay, pairingRecord, vaultSecret } from '../sync/store.js';
-import { disconnect } from '../sync/sync.js';
+import { disconnect, services } from '../sync/sync.js';
 import { thisBrowser } from '../pair/browser-name.js';
 import { browserAllowsUsage, report, requestBrowserUsage, turnUsageOff, turnUsageOn, usageOffered, usageOn } from '../usage/usage.js';
 import { AUTO_LOCK_CHOICES, autoLockText, nameProblem } from './choices.js';
@@ -269,6 +273,74 @@ fillingOff.addEventListener('click', () => {
     .then(() => showFilling());
 });
 
+// The sites each service was filled on, where the menu offers it first, and those the person took
+// it off, where its name no longer offers it. A wrong one is forgotten here, as well as from the
+// menu on the site itself. They are sealed under the local key, so this needs CometOTP unlocked.
+const sitesPanel = element('sites');
+const sitesStatus = element('sites-status');
+const sitesList = element<HTMLUListElement>('sites-list');
+
+/** Runs `change` with the local key, if still unlocked, then shows the page again. */
+function withKey(change: (key: Bytes) => Promise<void>): void {
+  void localKey()
+    .then((key) => (key ? change(key) : undefined))
+    .then(() => render());
+}
+
+function sitesRow(service: Service, filled: string[], hidden: string[]): HTMLLIElement {
+  const item = document.createElement('li');
+  const name = document.createElement('p');
+  name.className = 'site-service';
+  name.textContent = service.issuer && service.label ? `${service.issuer} (${service.label})` : service.issuer || service.label;
+  const hosts = document.createElement('ul');
+  const host = (text: string, action: string, label: string, change: (key: Bytes) => Promise<void>) => {
+    const line = document.createElement('li');
+    const what = document.createElement('span');
+    what.textContent = text;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'link';
+    button.textContent = action;
+    button.setAttribute('aria-label', label);
+    button.addEventListener('click', () => withKey(change));
+    line.append(what, button);
+    hosts.append(line);
+  };
+  for (const site of filled) {
+    host(`Filled on ${site}`, 'Remove', `Stop offering ${name.textContent} first on ${site}`, (key) => forgetLink(key, service.id, site));
+  }
+  for (const site of hidden) {
+    host(`Not offered on ${site}`, 'Offer again', `Offer ${name.textContent} on ${site} again`, (key) => unhide(key, service.id, site));
+  }
+  item.append(name, hosts);
+  return item;
+}
+
+async function showSites(view: LockState): Promise<void> {
+  const record = await pairingRecord();
+  const key = record && view === 'unlocked' ? await localKey() : null;
+  sitesPanel.hidden = !record;
+  sitesList.replaceChildren();
+  if (!record || !key) {
+    sitesStatus.textContent = 'Unlock CometOTP from its button in the toolbar to see the sites your services are linked to.';
+    document.body.dataset.sites = record ? 'locked' : 'unpaired';
+    return;
+  }
+  const [data, links, hidden] = await Promise.all([services(), readLinks(key), readHidden(key)]);
+  let count = 0;
+  for (const service of data?.payload.services ?? []) {
+    const filled = links[service.id] ?? [];
+    const off = hidden[service.id] ?? [];
+    if (!filled.length && !off.length) continue;
+    count += filled.length + off.length;
+    sitesList.append(sitesRow(service, filled, off));
+  }
+  sitesStatus.textContent = count
+    ? 'The CometOTP button in code fields offers a service first on the sites you filled it on, and not on sites you took it off. Remove a site that is wrong.'
+    : 'No service is linked to a site yet. When you fill a code on a site, its service is offered there first from then on.';
+  document.body.dataset.sites = String(count);
+}
+
 // Usage statistics, off until the person turns them on here (docs/privacy.md). In Firefox, its own
 // switch for usage data must be on too: asking for it must start in the click itself, so whether
 // to ask is worked out beforehand.
@@ -319,7 +391,7 @@ async function render(): Promise<void> {
       ? 'Set a password in CometOTP first: click its button in the toolbar.'
       : 'CometOTP is locked. Some settings need it unlocked: click its button in the toolbar to unlock it.';
   passwordForm.hidden = view === 'new';
-  await Promise.all([showBrowser(), showAutoLock(), showPasskey(view), showFilling(), showUsage()]);
+  await Promise.all([showBrowser(), showAutoLock(), showPasskey(view), showFilling(), showSites(view), showUsage()]);
   document.body.dataset.view = view;
 }
 
