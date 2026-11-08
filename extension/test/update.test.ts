@@ -6,10 +6,16 @@ import { checkedState, startState, updateText } from '../src/settings/update.js'
 
 describe('updates', () => {
   it('says a copy loaded from a folder cannot update itself, and lets a store copy check', () => {
-    assert.deepEqual(startState('development'), { kind: 'folder' });
-    assert.deepEqual(startState('normal'), { kind: 'idle' });
-    assert.deepEqual(startState('admin'), { kind: 'idle' });
+    assert.deepEqual(startState('development', true), { kind: 'folder' });
+    assert.deepEqual(startState('normal', true), { kind: 'idle' });
+    assert.deepEqual(startState('admin', true), { kind: 'idle' });
     assert.match(updateText({ kind: 'folder' }, '0.1.2'), /cannot update itself/);
+  });
+
+  it('says how to check from the Add-ons Manager where the browser cannot be asked (Firefox)', () => {
+    assert.deepEqual(startState('normal', false), { kind: 'manual' });
+    assert.deepEqual(startState('development', false), { kind: 'folder' });
+    assert.match(updateText({ kind: 'manual' }, '0.1.3'), /about:addons.*Check for Updates/);
   });
 
   it('reads the store’s answer in Chromium’s shape and in Firefox’s', () => {

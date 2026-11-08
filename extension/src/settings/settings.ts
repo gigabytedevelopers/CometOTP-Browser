@@ -385,28 +385,31 @@ usageOffButton.addEventListener('click', () => {
 
 // Updates, sooner than the browser's own schedule (src/settings/update.ts). The page listens for a
 // downloaded update only while it is open, and then restarts the extension to install it at once,
-// as Firefox would if nothing listened.
+// as Firefox would if nothing listened. Firefox cannot be asked to check, so it gets no button.
 const updateStatus = element('update-status');
 const updateCheck = element<HTMLButtonElement>('update-check');
 const updateRestart = element<HTMLButtonElement>('update-restart');
 const version = chrome.runtime.getManifest().version;
+const canCheck = chrome.runtime.requestUpdateCheck !== undefined;
 
 function showUpdate(update: UpdateState): void {
   updateStatus.textContent = updateText(update, version);
-  updateCheck.hidden = update.kind === 'folder' || update.kind === 'installing';
+  updateCheck.hidden = update.kind === 'folder' || update.kind === 'manual' || update.kind === 'installing';
   updateCheck.disabled = update.kind === 'checking' || update.kind === 'downloading';
   updateRestart.hidden = update.kind !== 'downloading';
   document.body.dataset.update = update.kind;
 }
 
 void chrome.management.getSelf().then(
-  (self) => showUpdate(startState(self.installType)),
-  () => showUpdate({ kind: 'idle' }),
+  (self) => showUpdate(startState(self.installType, canCheck)),
+  () => showUpdate(startState('other', canCheck)),
 );
 
 updateCheck.addEventListener('click', () => {
+  const check = chrome.runtime.requestUpdateCheck?.();
+  if (!check) return showUpdate({ kind: 'manual' });
   showUpdate({ kind: 'checking' });
-  void chrome.runtime.requestUpdateCheck().then(
+  void check.then(
     (result) => showUpdate(checkedState(result)),
     (error: unknown) => showUpdate({ kind: 'failed', reason: message(error) }),
   );

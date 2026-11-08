@@ -38,8 +38,11 @@ declare namespace chrome.runtime {
     details?: { version?: string };
   }
 
-  /** Asks the store now whether there is a newer version; the browser downloads one that there is. */
-  function requestUpdateCheck(): Promise<UpdateCheck>;
+  /**
+   * Asks the store now whether there is a newer version; the browser downloads one that there is.
+   * Chromium only: Firefox has not implemented it.
+   */
+  const requestUpdateCheck: (() => Promise<UpdateCheck>) | undefined;
 
   /** Restarts the extension, which installs an update that was downloaded. */
   function reload(): void;
