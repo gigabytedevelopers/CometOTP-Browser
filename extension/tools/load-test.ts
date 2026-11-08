@@ -5,10 +5,10 @@
 // on a virtual authenticator with the PRF extension, on the settings page, and unlocks with it
 // (see exercisePasskey). It changes the settings (see exerciseSettings). Last, it pairs with a
 // stand-in phone through a relay it starts on this computer (see exercisePairing), fills codes
-// into a page it serves (see exerciseFill), then checks the codes against the protocol package's,
-// that a change on the phone reaches the popup, that locking takes them away, and that the phone
-// removing the browser wipes its copy (see exerciseSync); it pairs again and disconnects from the
-// browser (see exerciseDisconnect).
+// into a page it serves (see exerciseFill) and lists many sites (see exerciseSites), then checks
+// the codes against the protocol package's, that a change on the phone reaches the popup, that
+// locking takes them away, and that the phone removing the browser wipes its copy (see
+// exerciseSync); it pairs again and disconnects from the browser (see exerciseDisconnect).
 //
 // - Chrome, driven through the DevTools protocol over a pipe: Extensions.loadUnpacked, which
 //   needs --enable-unsafe-extension-debugging.
@@ -940,6 +940,60 @@ async function codeSince(shown: string | undefined, service: Service, since: num
   return shown === (await generateCode(service, Date.now() / 1000));
 }
 
+/** How many sites exerciseSites links the service to: more than the list shows at first. */
+const MANY_SITES = 45;
+
+/**
+ * The settings page's list of sites, once there are many: the page itself links the service to
+ * MANY_SITES sites, as filling would. The list shows the first 20 and a search; Show all shows the
+ * rest, and the search narrows them. Removing a site takes its row out and moves focus to the next
+ * one, and two removed at once are both forgotten, in the list and in storage. Last, every site is
+ * forgotten, as when the phone stops sharing the service.
+ */
+async function exerciseSites(driver: FillDriver, serviceId: string): Promise<void> {
+  const { evaluate } = driver;
+  /** Runs `body` in the settings page with the extension's own links and lock modules, and the local key. */
+  const withLinks = (body: string) => `(async () => {
+    const links = await import(new URL('../fill/links.js', location.href).href);
+    const key = await (await import(new URL('../lock/lock.js', location.href).href)).localKey();
+    ${body}
+  })()`;
+  const id = JSON.stringify(serviceId);
+  const rows = "String(document.querySelectorAll('#sites-list button').length)";
+  const sites = 'document.body.dataset.sites';
+
+  await evaluate(
+    withLinks(`for (let i = 0; i < ${MANY_SITES}; i++) await links.addLink(key, ${id}, 'site-' + String(i).padStart(2, '0') + '.example');
+    return 'linked';`),
+  );
+  await driver.open('settings/settings.html');
+  await attribute(evaluate, `the settings page to count ${MANY_SITES} sites`, sites, (v) => v === String(MANY_SITES));
+  await attribute(evaluate, 'the list to show its first 20 sites', rows, (v) => v === '20');
+  if ((await evaluate("String(document.getElementById('sites-search').hidden)")) !== 'false') throw new Error('The list has no search');
+  await evaluate(click('sites-all'));
+  await attribute(evaluate, 'Show all to show every site', rows, (v) => v === String(MANY_SITES));
+  await evaluate(`(() => { const s = document.getElementById('sites-search'); s.value = 'site-4'; s.dispatchEvent(new Event('input')); return 'searched'; })()`);
+  await attribute(evaluate, 'the search to find five sites', rows, (v) => v === '5');
+
+  // Removing the first: its row goes, and focus moves to the next.
+  await evaluate("(() => { const b = document.querySelector('#sites-list button'); b.focus(); b.click(); return 'removed'; })()");
+  await attribute(evaluate, 'the site to be forgotten', sites, (v) => v === String(MANY_SITES - 1));
+  await attribute(evaluate, 'focus to move to the next site', "document.activeElement?.closest('li')?.textContent ?? ''", (v) => v.includes('site-41.example'));
+  // Two at once: neither writes back the other.
+  await evaluate("(() => { const [a, b] = document.querySelectorAll('#sites-list button'); a.click(); b.click(); return 'removed'; })()");
+  await attribute(evaluate, 'both sites to leave the list', sites, (v) => v === String(MANY_SITES - 3));
+  await attribute(
+    evaluate,
+    'both sites to be forgotten in storage',
+    withLinks(`return String((await links.readLinks(key))[${id}]?.length ?? 0);`),
+    (v) => v === String(MANY_SITES - 3),
+  );
+
+  await evaluate(withLinks(`await links.keepServices(key, new Set()); return 'forgotten';`));
+  await driver.open('settings/settings.html');
+  await attribute(evaluate, 'the settings page to list no site again', sites, (v) => v === '0');
+}
+
 /**
  * Filling codes into a page this test serves, under a strict content security policy. The popup
  * says filling is on (the build has access to sites already). Focusing the page's code field shows the
@@ -947,10 +1001,10 @@ async function codeSince(shown: string | undefined, service: Service, since: num
  * offered at first but every service is listed, a search narrows them to the service, and choosing
  * it, then confirming the site as its first, fills the field with its code and links it to the site.
  * Then six one-digit boxes get one digit each, from the service now offered first. Taking it off
- * the site moves it back among the rest, and the settings page then lists no site; a field in a
- * frame from the same host gets the button, and one from another host does not; Escape closes the
- * menu. Last, where the browser lets the extension give access back (Firefox: Chrome keeps access
- * the manifest asks for), Turn off removes the button.
+ * the site moves it back among the rest; a field in a frame from the same host gets the button, and
+ * one from another host does not; Escape closes the menu. The settings page then lists no site, and
+ * copes with many (see exerciseSites). Last, where the browser lets the extension give access back
+ * (Firefox: Chrome keeps access the manifest asks for), Turn off removes the button.
  */
 async function exerciseFill(driver: FillDriver, phone: PhoneVault, pages: Pages, canTurnOff: boolean): Promise<void> {
   const { evaluate } = driver;
@@ -1061,6 +1115,7 @@ async function exerciseFill(driver: FillDriver, phone: PhoneVault, pages: Pages,
   await driver.open('settings/settings.html');
   if ((await evaluate(readRecord('site-links'))) === 'null') throw new Error('The service was not linked to the site');
   await attribute(evaluate, 'the settings page to list no site once the service was taken off', 'document.body.dataset.sites', (v) => v === '0');
+  await exerciseSites(driver, service.id);
   if (canTurnOff) {
     await evaluate(click('filling-off'));
     await attribute(evaluate, 'access to sites to be removed', 'document.body.dataset.filling', (v) => v === 'off');
@@ -1115,7 +1170,7 @@ for (const browser of browsers) {
         ? 'a passkey unlocks it'
         : `passkeys ${firefoxPasskeys === 'unsupported' ? 'are not offered (no PRF)' : 'are offered'}`;
     console.log(
-      `${browser.name}: the ${browser.target} build loads, its popup reaches the background (${version()}), the lock works, ${passkeys}, its settings work, it pairs with a phone, fills codes into a page, its codes follow the phone's, and it disconnects`,
+      `${browser.name}: the ${browser.target} build loads, its popup reaches the background (${version()}), the lock works, ${passkeys}, its settings work, it pairs with a phone, fills codes into a page, lists many sites, its codes follow the phone's, and it disconnects`,
     );
   } catch (error) {
     failed = true;
