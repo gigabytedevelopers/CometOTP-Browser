@@ -435,6 +435,20 @@ describe('relay', () => {
       assert.equal(reads.mock.callCount(), 1);
     });
 
+    it('takes If-None-Match as a list of tags, weak or not', async () => {
+      const v = await vault();
+      await call('PUT', `/v1/vault/${v.id}`, { token: v.write, body: await blob(v, 3) });
+      const get = (tags: string) => call('GET', `/v1/vault/${v.id}`, { token: v.read, headers: { 'If-None-Match': tags } });
+      const unchanged = await get('"1", "3"');
+      assert.equal(unchanged.status, 304);
+      assert.equal(unchanged.headers.get('etag'), '"3"');
+      assert.equal((await get('"2",W/"3"')).status, 304);
+      assert.equal((await get('W/"3"')).status, 304);
+      assert.equal((await get('"1", W/"2"')).status, 200);
+      assert.equal((await get('"33"')).status, 200);
+      assert.equal((await get('3')).status, 200);
+    });
+
     it('refuses blobs of the wrong shape or size', async () => {
       const v = await vault();
       assert.deepEqual((await call('PUT', `/v1/vault/${v.id}`, { token: v.write, body: randomBytes(40 + PAD_BLOCK) })).json, {
@@ -578,6 +592,31 @@ describe('relay', () => {
       assert.equal((await put('2001:db8:5:6:a:b:c:d')).status, 201);
       assert.equal((await put('2001:db8:5:6::2')).status, 429);
       assert.equal((await put('2001:db8:5:7::1')).status, 201);
+    });
+
+    it('limits uploads and downloads per vault, counting only those with its token', async () => {
+      const a = await vault('198.51.100.30');
+      const b = await vault('198.51.100.31');
+      const upload = async (v: TestVault, version: number, token = v.write) =>
+        call('PUT', `/v1/vault/${v.id}`, { token, body: await blob(v, version) });
+      const download = (v: TestVault, token = v.read) => call('GET', `/v1/vault/${v.id}`, { token });
+
+      assert.equal((await upload(a, 1, a.read)).status, 401);
+      assert.equal((await upload(a, 1)).status, 200);
+      const limited = await upload(a, 2);
+      assert.deepEqual(limited.json, { error: 'rate_limited' });
+      assert.ok(Number(limited.headers.get('retry-after')) > 0);
+      assert.equal((await upload(b, 1)).status, 200);
+
+      assert.equal((await download(a, a.write)).status, 401);
+      assert.equal((await download(a)).status, 200);
+      assert.equal((await download(a)).status, 200);
+      assert.equal((await download(a)).status, 429);
+      assert.equal((await download(b)).status, 200);
+
+      clock += 60 * MINUTE;
+      assert.equal((await upload(a, 2)).status, 200);
+      assert.equal((await download(a)).status, 200);
     });
 
     it('takes the address the proxy added, not ones the client put before it', async () => {
