@@ -1,0 +1,108 @@
+name: Extension to the Chrome Web Store
+
+# Uploads the extension's Chromium zip to the Chrome Web Store and submits it for review once its
+# GitHub release is published (.github/RELEASING.md, "Publishing to the Chrome Web Store"). The zip
+# comes from that release, which the person who pushed the tag made from the release workflow's
+# checked artifact, and is checked against the release's SHA256SUMS and the tag; nothing of the
+# tagged commit runs. The job signs in to Google with its own GitHub identity (Workload Identity
+# Federation) as the service account the publisher added in the developer dashboard, so no key is
+# kept anywhere. Google lets only this repository's jobs in the chrome-web-store environment on an
+# extension-v* tag do that, and GitHub lets only extension-v* tags use that environment.
+#
+# Firefox Add-ons still gets its zip by hand. To try again after a failure, run this workflow from
+# the Actions tab on the tag ("Use workflow from": extension-vX.Y.Z).
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extension-chrome-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Upload to the Chrome Web Store
+    if: startsWith(github.ref, 'refs/tags/extension-v') && !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: chrome-web-store
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # The script comes from the default branch, so the tagged commit cannot change what gets the
+      # token.
+      - name: Fetch the upload script from the default branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+
+      - name: Check that the tag is signed and names a commit on the default branch
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          version="${TAG#extension-v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::$TAG is not extension-vX.Y.Z"
+            exit 1
+          fi
+          read -r type sha < <(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.type + " " + .object.sha')
+          if [ "$type" != tag ] || [ "$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq '.verification.verified')" != true ]; then
+            echo "::error::$TAG is not an annotated tag whose signature GitHub verifies"
+            exit 1
+          fi
+          status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$GITHUB_SHA...$DEFAULT_BRANCH" --jq .status)
+          if [ "$status" != ahead ] && [ "$status" != identical ]; then
+            echo "::error::$TAG names $GITHUB_SHA, which is not on $DEFAULT_BRANCH"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Download the release's Chromium zip and check it
+        id: package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          dir="$RUNNER_TEMP/release"
+          zip="cometotp-chromium-$VERSION.zip"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$zip" --pattern SHA256SUMS --dir "$dir"
+          cd "$dir"
+          grep -E "^[0-9a-f]{64}  $zip\$" SHA256SUMS | sha256sum --check --strict -
+          manifest=$(unzip -p "$zip" manifest.json | jq -r .version)
+          if [ "$manifest" != "$VERSION" ]; then
+            echo "::error::$zip says version $manifest, not $VERSION"
+            exit 1
+          fi
+          echo "zip=$dir/$zip" >> "$GITHUB_OUTPUT"
+
+      - name: Sign in to Google as the publisher's service account
+        id: google
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/chromewebstore
+          access_token_lifetime: 900s
+          create_credentials_file: false
+          export_environment_variables: false
+
+      - name: Upload the zip and submit it for review
+        env:
+          ACCESS_TOKEN: ${{ steps.google.outputs.access_token }}
+          PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
+          ITEM_ID: ${{ vars.CWS_ITEM_ID }}
+          VERSION: ${{ steps.version.outputs.version }}
+          ZIP: ${{ steps.package.outputs.zip }}
+        run: python3 -I .github/scripts/publish_chrome.py

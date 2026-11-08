@@ -5,8 +5,9 @@ name: Extension release
 # version in extension/package.json, and name a commit on main. The packages are built and checked
 # as the Extension workflow does, loaded into Chrome and Firefox, and kept with the source and their
 # checksums as the run's artifact. Nothing is published from here: the GitHub release is made from
-# that artifact by the person who pushed the tag, so it shows as theirs, and the stores get the
-# zips by hand.
+# that artifact by the person who pushed the tag, so it shows as theirs. Publishing that release
+# sends the Chromium zip to the Chrome Web Store (extension-chrome.yml); Firefox Add-ons gets its
+# zip by hand.
 #
 # The zips are deterministic, so anyone can build the tag and compare checksums with the release.
 on:
