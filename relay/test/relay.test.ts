@@ -301,7 +301,9 @@ describe('relay', () => {
       assert.deepEqual((await call('GET', `/v1/pair/${c.id}/to-browser`, { token: c.browser })).json, { error: 'expired' });
 
       const d = await claimed();
-      assert.equal((await call('DELETE', `/v1/pair/${d.id}`, { token: d.browser.replace(/^./, 'A') })).status, 401);
+      // Another character in front, never the same one: a random token starts with "A" one time in 64.
+      const wrong = (d.browser.startsWith('A') ? 'B' : 'A') + d.browser.slice(1);
+      assert.equal((await call('DELETE', `/v1/pair/${d.id}`, { token: wrong })).status, 401);
       assert.equal((await call('DELETE', `/v1/pair/${d.id}`, { token: d.phone })).status, 204);
       assert.deepEqual((await call('POST', `/v1/pair/${d.id}/to-phone`, { token: d.browser, json: frame() })).json, {
         error: 'expired',
