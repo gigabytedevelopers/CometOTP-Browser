@@ -3,10 +3,12 @@
 Your [CometOTP](https://github.com/gigabytedevelopers/CometOTP) two-factor codes on your
 computer, even when your phone is not with you.
 
-> **In development.** There is nothing to install yet. Progress is tracked on the
-> [project board](https://github.com/orgs/gigabytedevelopers/projects/3).
+**Install it:** [Chrome Web Store](https://chromewebstore.google.com/detail/cometotp/ohmabfejockojakahbaichppkfpboioo)
+(also Edge, Brave, Opera and Vivaldi) or [Firefox Add-ons](https://addons.mozilla.org/firefox/addon/cometotp/).
+Pair it from CometOTP for Android, in **Settings > Security > Connected extensions**. Work in progress
+is on the [project board](https://github.com/orgs/gigabytedevelopers/projects/3).
 
-## What it will do
+## What it does
 
 - **Pair once.** The extension shows a QR code, CometOTP on Android scans it, and both screens show
   the same six-digit code so you can check that nobody else answered.
