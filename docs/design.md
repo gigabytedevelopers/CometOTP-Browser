@@ -113,8 +113,8 @@ the pairing QR.
   quick way, as biometrics are on top of the PIN in the app.
 - **Unlocked:** M lives in `storage.session`, which stays in memory, is cleared when the browser
   quits and is not readable by content scripts. It survives the MV3 service worker being stopped.
-- **Auto-lock:** after 15 idle minutes (configurable), when the computer locks (`idle` API) and
-  when the browser quits.
+- **Auto-lock:** after 15 idle minutes (configurable), when the computer locks (`idle` API, unless
+  turned off in the settings) and when the browser quits. The locked popup says why it locked.
 - **Popup:** services with search, the current code and its countdown; click to copy.
 - **Filling:** once the person turns it on, which asks the browser for access to sites (never at
   install), a small CometOTP button in one-time-code fields lists the services linked to the

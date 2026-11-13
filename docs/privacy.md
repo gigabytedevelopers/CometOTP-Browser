@@ -28,8 +28,9 @@ In the browser's storage for the extension:
 - **The sites you filled codes on,** sealed under the local key, so the menu offers the right
   service first, and **the sites you took a service off,** sealed the same way, so the menu stops
   offering it there. The settings page lists both, and you can remove any of them.
-- **Settings:** how soon the extension locks, the name your phone shows for this browser, the relay
-  chosen for pairing, and when it last checked for a new copy.
+- **Settings:** how soon the extension locks and whether it locks when your computer locks, the
+  name your phone shows for this browser, the relay chosen for pairing, and when it last checked
+  for a new copy. Until you unlock it, also why and when it last locked, so it can tell you.
 - **Usage statistics, only if you turned them on:** the random ID made for them. While the browser
   runs, it also holds in memory when the current visit began.
 

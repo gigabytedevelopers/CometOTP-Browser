@@ -112,6 +112,10 @@ while Firefox shows the passkey and permission prompts.
   done. The password and the settings stay, to pair again.
 - **Lock after** 1, 5, 15 (the default), 30 or 60 minutes, or 4 hours without input. The
   background applies it each time it starts, and the page at once.
+- **Also lock when this computer locks,** on unless turned off; Chromium only, as Firefox does not
+  say when the computer locks. A computer that locks its screen a few minutes after its display
+  sleeps would otherwise cut every longer time short. Turned off, the chosen time goes on
+  counting while the computer is locked.
 - **Change the password,** given the current one. M stays the same and is sealed again under a key
   from the new password and a new salt, so nothing sealed under M changes, and a passkey keeps
   working. It works locked or unlocked.
@@ -194,10 +198,20 @@ The extension keeps everything private sealed under a random 32-byte local key M
 - **While unlocked:** M in `storage.session`, which is in memory only, closed to content scripts,
   and cleared when the browser quits.
 - **Locking** takes M out of memory: after 15 minutes without input (or the time chosen in the
-  settings), when the computer locks
+  settings), when the computer locks unless that is turned off in the settings
   (Firefox does not report this, so there the idle time applies), when the browser quits, and
   with **Lock now**. An open popup drops its codes at once, wherever the lock came from, and the
   settings page shows what it can while locked.
+- **Idle time:** the browser says "idle" by the threshold the extension gave it, which goes back
+  to its default of a minute whenever the extension reloads (an update), until the background
+  sets it again. So before locking for idleness the background asks `idle.queryState` with the
+  chosen time, and locks only if there really has been no input that long. While the computer is
+  locked the browser reports "locked", never "idle"; with locking with the computer turned off, an
+  alarm counts the chosen time from then instead, and coming back cancels it.
+- **Why it locked:** each lock that ends an unlocked time keeps why and when (after the chosen
+  time, the computer locking, or **Lock now**), outside M, and the locked popup says so. No reason
+  kept means the browser cleared M itself, as when it quits or the extension updates. Unlocking
+  forgets it.
 - **Setup** asks for at least 10 characters and a password the meter rates at least fair. The
   meter is a rough estimate (`src/lock/strength.ts`): it catches common passwords and their
   usual variants, repeats and runs.
