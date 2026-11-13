@@ -256,10 +256,12 @@ const BROWSER_NAME = 'Load test browser';
 /**
  * The settings page: usage statistics are off, with no id kept, as nobody turned them on (the test
  * never turns them on: it would send to Google Analytics). Then choosing how soon it locks (the
- * popup then says so), naming the browser for pairing (the stand-in phone checks the name in
- * exercisePairing), and changing the password: a wrong current one is refused; after the change
- * the old one no longer unlocks and the new one unlocks to the same local key, with the passkey
- * kept. Then it changes the password back.
+ * popup then says so), and in Chromium turning locking with the computer off and on again (the
+ * popup then leaves the computer out; Firefox offers no such choice), naming the browser for
+ * pairing (the stand-in phone checks the name in exercisePairing), and changing the password: a
+ * wrong current one is refused; after the change the old one no longer unlocks, the locked popup
+ * says Lock now locked it, and the new one unlocks to the same local key, with the passkey kept.
+ * Then it changes the password back.
  */
 async function exerciseSettings(evaluate: Evaluate, open: (path: string) => Promise<void>): Promise<void> {
   const select = (minutes: number) =>
@@ -284,6 +286,22 @@ async function exerciseSettings(evaluate: Evaluate, open: (path: string) => Prom
   await evaluate(select(15));
   await attribute(evaluate, 'the lock time to go back to its default', readRecord('auto-lock'), (v) => v === 'null');
 
+  // Locking with the computer is on unless turned off, and only Chromium says when the computer locks.
+  if (firefox === 'true') {
+    await attribute(evaluate, 'no choice about the computer locking', 'document.body.dataset.lockWithComputer', (v) => v === 'unavailable');
+  } else {
+    const toggle = "(document.getElementById('lock-with-computer').click(), 'clicked')";
+    await attribute(evaluate, 'locking with the computer to be on', 'document.body.dataset.lockWithComputer', (v) => v === 'on');
+    await evaluate(toggle);
+    await attribute(evaluate, 'locking with the computer to be turned off', readRecord('lock-with-computer'), (v) => v === 'false');
+    await open('popup/popup.html');
+    await attribute(evaluate, 'the popup to leave the computer out', "document.getElementById('lock-hint').textContent", (v) => v.includes('without use and when the browser quits'));
+    await open('settings/settings.html');
+    await attribute(evaluate, 'locking with the computer to stay off', 'document.body.dataset.lockWithComputer', (v) => v === 'off');
+    await evaluate(toggle);
+    await attribute(evaluate, 'locking with the computer to be back on', readRecord('lock-with-computer'), (v) => v === 'null');
+  }
+
   await evaluate(fill('name-form', { name: ` ${BROWSER_NAME} ` }));
   await attribute(evaluate, 'the name to be saved', "document.getElementById('name-done').textContent", (v) => v === 'Saved.');
   if ((await evaluate(readRecord('browser-name'))) !== JSON.stringify(BROWSER_NAME)) throw new Error('The name was not kept as given');
@@ -303,6 +321,7 @@ async function exerciseSettings(evaluate: Evaluate, open: (path: string) => Prom
   await view(evaluate, 'unlocked');
   await evaluate(click('lock'));
   await view(evaluate, 'locked');
+  await attribute(evaluate, 'the popup to say Lock now locked it', 'document.body.dataset.lockReason', (v) => v === 'button');
   await evaluate(fill('unlock-form', { 'unlock-password': PASSWORD }));
   await attribute(evaluate, 'the old password to be refused', "document.getElementById('unlock-error').textContent", (v) => v === 'Wrong password.');
   await evaluate(fill('unlock-form', { 'unlock-password': NEW_PASSWORD }));
