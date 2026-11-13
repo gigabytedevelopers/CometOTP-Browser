@@ -11,6 +11,7 @@ import {
   changePassword,
   localKey,
   lock,
+  lockReason,
   passkeyCredential,
   removePasskey,
   reset,
@@ -19,7 +20,8 @@ import {
   unlock,
   unlockWithPasskey,
 } from '../src/lock/lock.js';
-import { getRecord, putRecord } from '../src/lock/storage.js';
+import { clearSessionKey, getRecord, putRecord } from '../src/lock/storage.js';
+import { lockWithComputer, setLockWithComputer } from '../src/settings/prefs.js';
 import { pairingRecord, storePairing } from '../src/sync/store.js';
 import { installBrowser } from './fake-browser.js';
 
@@ -151,5 +153,45 @@ describe('the lock, over its storage', () => {
       assert.equal(await state(), 'new');
       assert.equal(await pairingRecord(), null);
     }
+  });
+});
+
+describe('why it locked', () => {
+  it('keeps why and when it locked until it is unlocked, and only for the lock that locked it', async () => {
+    installBrowser();
+    await setUp(PASSWORD);
+    assert.equal(await lockReason(), null);
+    const before = Date.now();
+    await lock('idle', 240);
+    const reason = await lockReason();
+    assert.equal(reason?.why, 'idle');
+    assert.equal(reason?.minutes, 240);
+    assert.ok(reason && reason.at >= before && reason.at <= Date.now());
+    // The computer locking later, while it is locked already, does not hide why it locked.
+    await lock('computer');
+    assert.equal((await lockReason())?.why, 'idle');
+    assert.equal(await unlock(PASSWORD), true);
+    assert.equal(await lockReason(), null);
+    await lock();
+    assert.equal((await lockReason())?.why, 'button');
+  });
+
+  it('has no reason when the browser cleared the local key itself, as when it quits', async () => {
+    installBrowser();
+    await setUp(PASSWORD);
+    await clearSessionKey();
+    assert.equal(await state(), 'locked');
+    assert.equal(await lockReason(), null);
+  });
+
+  it('locks with the computer unless that is turned off', async () => {
+    installBrowser();
+    assert.equal(await lockWithComputer(), true);
+    await setLockWithComputer(false);
+    assert.equal(await lockWithComputer(), false);
+    assert.equal(await getRecord('lock-with-computer'), false);
+    await setLockWithComputer(true);
+    assert.equal(await lockWithComputer(), true);
+    assert.equal(await getRecord('lock-with-computer'), undefined);
   });
 });

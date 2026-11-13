@@ -47,7 +47,8 @@
         <h2 id="lock-title">Lock</h2>
         <label for="auto-lock">Lock after this long without use</label>
         <select id="auto-lock"></select>
-        <p class="hint">CometOTP also locks when the computer locks and when the browser quits.</p>
+        <label id="lock-with-computer-row" class="check" hidden><input id="lock-with-computer" type="checkbox"> Also lock when this computer locks</label>
+        <p id="lock-also" class="hint"></p>
 
         <form id="password-form" novalidate hidden>
           <h3>Change the password</h3>

@@ -74,6 +74,22 @@ form button {
   margin-top: 10px;
 }
 
+/* A setting that is on or off, with its words beside the box. */
+label.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 2px;
+  font-weight: 400;
+  font-size: 14px;
+}
+
+label.check input {
+  width: auto;
+  margin: 0;
+  padding: 0;
+}
+
 /* The sites each service is linked to or hidden on, each with a button to forget it. */
 #sites-search {
   width: 100%;

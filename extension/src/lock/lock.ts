@@ -1,14 +1,17 @@
 // The lock as the popup and the background use it: set up once, then locked or unlocked. Unlocking,
 // with the password or a passkey, puts M in storage.session; locking takes it out again, so from
-// then on nothing private can be opened until one of them is given again.
+// then on nothing private can be opened until one of them is given again. Locking also keeps why
+// and when, outside M, so the locked popup can say; unlocking forgets it.
 import { fromBase64UrlOfLength, toBase64Url, type Bytes } from '@cometotp/protocol';
 
 import { deleteVault } from '../sync/relay.js';
+import type { LockReason } from '../settings/choices.js';
 import { pairingRecord } from '../sync/store.js';
 import { createLock, isLockRecord, openLock, openWithPasskey, relock, wrapForPasskey, type LockRecord } from './crypto.js';
 import {
   clearRecords,
   clearSessionKey,
+  deleteRecord,
   getRecord,
   getSessionKey,
   onSessionKeyChange,
@@ -18,6 +21,7 @@ import {
 } from './storage.js';
 
 const LOCK_RECORD = 'lock';
+const LOCK_REASON = 'lock-reason';
 
 /** How long a reset waits for the relay to delete the vault. */
 const RESET_DELETE_MS = 5000;
@@ -56,7 +60,7 @@ export async function setUp(password: string): Promise<void> {
   if (await record()) throw new Error('A password is set already');
   const { record: created, localKey } = await createLock(password);
   await putRecord(LOCK_RECORD, created);
-  await setSessionKey(toBase64Url(localKey));
+  await unlockWith(localKey);
 }
 
 /** Unlocks with `password`; false when it is wrong. */
@@ -65,7 +69,7 @@ export async function unlock(password: string): Promise<boolean> {
   if (!stored) return false;
   const localKey = await openLock(stored, password);
   if (!localKey) return false;
-  await setSessionKey(toBase64Url(localKey));
+  await unlockWith(localKey);
   return true;
 }
 
@@ -84,8 +88,31 @@ export async function changePassword(current: string, next: string): Promise<boo
   return updateLock((now) => (now.password.sealed === stored.password.sealed ? { ...now, kdf, password } : null));
 }
 
-export function lock(): Promise<void> {
-  return clearSessionKey();
+/** Puts M in storage.session, forgetting why the extension last locked. */
+async function unlockWith(localKey: Bytes): Promise<void> {
+  await deleteRecord(LOCK_REASON);
+  await setSessionKey(toBase64Url(localKey));
+}
+
+/**
+ * Locks, keeping why: with Lock now unless said otherwise, and for "idle" after how many minutes.
+ * Only a lock that ends an unlocked time is kept, so a later one does not hide why it locked.
+ */
+export async function lock(why: LockReason['why'] = 'button', minutes?: number): Promise<void> {
+  if (await getSessionKey()) {
+    const reason: LockReason = { why, at: Date.now(), ...(minutes ? { minutes } : {}) };
+    await putRecord(LOCK_REASON, reason);
+  }
+  await clearSessionKey();
+}
+
+/** Why the extension last locked itself, or null when the browser cleared M itself or it is unlocked. */
+export async function lockReason(): Promise<LockReason | null> {
+  const value = (await getRecord(LOCK_REASON)) as Partial<LockReason> | undefined;
+  const whys: readonly unknown[] = ['idle', 'computer', 'button'];
+  if (!value || !whys.includes(value.why) || typeof value.at !== 'number') return null;
+  if ((await getSessionKey()) !== null) return null;
+  return { why: value.why as LockReason['why'], at: value.at, ...(typeof value.minutes === 'number' ? { minutes: value.minutes } : {}) };
 }
 
 /**
@@ -124,7 +151,7 @@ export async function unlockWithPasskey(prf: Bytes): Promise<boolean> {
   if (!wrap) return false;
   const key = await openWithPasskey(wrap, prf);
   if (!key) return false;
-  await setSessionKey(toBase64Url(key));
+  await unlockWith(key);
   return true;
 }
 

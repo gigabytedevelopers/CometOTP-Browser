@@ -1,7 +1,8 @@
 // The extension's background: a service worker in Chromium and a background script in Firefox,
 // both loaded as a module. It locks the extension after a time without input (15 minutes unless
-// chosen in its settings) and when the computer locks (Firefox does not report the latter, so there the idle time applies). Quitting
-// the browser locks it too, as storage.session is cleared. It keeps the vault current, downloading
+// chosen in its settings) and, unless that is turned off, when the computer locks (Firefox does
+// not report that, so there the time without input applies). Quitting the browser locks it too,
+// as storage.session is cleared. It keeps the vault current, downloading
 // at start-up and every 15 minutes (protocol §7.2). Once the person allows access to sites, it
 // runs the content script that puts a CometOTP button in code fields, and serves its menus. It also
 // answers the popup's ping with its version, which shows that the two can talk
@@ -12,7 +13,8 @@ import { chooseService, claimMenu, forgetService, listMenu, mayFill, openMenu, p
 import { isFillChoose, isFillClaim, isFillClose, isFillForget, isFillHere, isFillList, isFillOpen, isFillSize } from './fill/messages.js';
 import { lock } from './lock/lock.js';
 import { isPing, isUsage, type Pong } from './messages.js';
-import { autoLockMinutes } from './settings/prefs.js';
+import { idleAction } from './settings/choices.js';
+import { autoLockMinutes, lockWithComputer } from './settings/prefs.js';
 import { sync } from './sync/sync.js';
 import { sendUsage } from './usage/usage.js';
 
@@ -24,9 +26,29 @@ function fromExtension(sender: chrome.runtime.MessageSender): boolean {
 // The time without input before locking is a setting (15 minutes unless chosen), set again each
 // time the background starts; the settings page sets it at once when it changes.
 void autoLockMinutes().then((minutes) => chrome.idle.setDetectionInterval(minutes * 60));
-chrome.idle.onStateChanged.addListener((state) => {
-  if (state !== 'active') void lock();
-});
+chrome.idle.onStateChanged.addListener((state) => void onIdleState(state));
+
+/** While the computer is locked and that does not lock the extension: the chosen time, counted again. */
+const IDLE_ALARM = 'lock-after-idle';
+
+async function onIdleState(state: chrome.idle.IdleState): Promise<void> {
+  const action = idleAction(state, await lockWithComputer());
+  if (action === 'lock') await lock('computer');
+  else if (action === 'stop') await chrome.alarms.clear(IDLE_ALARM);
+  else if (action === 'start') await chrome.alarms.create(IDLE_ALARM, { delayInMinutes: await autoLockMinutes() });
+  else await lockIfIdle();
+}
+
+/**
+ * Locks if there has been no input for the chosen time. The browser says "idle" by the time it was
+ * given, which goes back to its default of a minute whenever the extension reloads, as on an
+ * update, until the background sets it again; so the time is checked here before locking.
+ */
+async function lockIfIdle(): Promise<void> {
+  const minutes = await autoLockMinutes();
+  chrome.idle.setDetectionInterval(minutes * 60);
+  if ((await chrome.idle.queryState(minutes * 60)) !== 'active') await lock('idle', minutes);
+}
 
 /** Minutes between downloads; the popup downloads whenever it opens too. */
 const SYNC_MINUTES = 15;
@@ -37,6 +59,12 @@ void chrome.alarms.get('sync').then((alarm) => {
 });
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'sync') void sync();
+  // The chosen time has passed since the computer locked, with nobody back since.
+  else if (alarm.name === IDLE_ALARM) {
+    void chrome.idle.queryState(15).then(async (state) => {
+      if (state !== 'active') await lock('idle', await autoLockMinutes());
+    });
+  }
 });
 chrome.runtime.onStartup.addListener(() => {
   void sync();

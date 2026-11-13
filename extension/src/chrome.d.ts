@@ -114,6 +114,9 @@ declare namespace chrome.idle {
   /** How long without input, in seconds, before the state turns "idle" (at least 15). */
   function setDetectionInterval(seconds: number): void;
 
+  /** The state now, as if the time before "idle" were `seconds`: "locked" whenever the computer is. */
+  function queryState(seconds: number): Promise<IdleState>;
+
   const onStateChanged: {
     addListener(callback: (state: IdleState) => void): void;
   };
@@ -189,7 +192,10 @@ declare namespace chrome.alarms {
 
   function get(name: string): Promise<Alarm | undefined>;
 
-  function create(name: string, info: { periodInMinutes: number; delayInMinutes?: number }): Promise<void> | void;
+  function create(name: string, info: { periodInMinutes?: number; delayInMinutes?: number }): Promise<void> | void;
+
+  /** Says whether there was an alarm by that name. */
+  function clear(name: string): Promise<boolean>;
 
   const onAlarm: {
     addListener(callback: (alarm: Alarm) => void): void;

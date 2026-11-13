@@ -3,10 +3,10 @@
 // three screens it shows is in `data-view` on the body.
 // It also pings the background and records the answer in `data-background`; the load test waits
 // for both (tools/load-test.ts).
-import { lock, onLockChange, passkeyCredential, reset, setUp, state, unlock, unlockWithPasskey, type LockState } from '../lock/lock.js';
+import { lock, lockReason, onLockChange, passkeyCredential, reset, setUp, state, unlock, unlockWithPasskey, type LockState } from '../lock/lock.js';
 import { passkeyOutput, passkeysNeedTab, passkeysSupported } from '../lock/passkey.js';
-import { autoLockText } from '../settings/choices.js';
-import { autoLockMinutes } from '../settings/prefs.js';
+import { lockHintText, lockReasonText } from '../settings/choices.js';
+import { autoLockMinutes, lockWithComputer } from '../settings/prefs.js';
 import { pairingRecord } from '../sync/store.js';
 import { clearNotice, disconnect, notice, sync } from '../sync/sync.js';
 import { clearCodes, renderCodes } from './codes.js';
@@ -36,6 +36,17 @@ function show(view: LockState): void {
   element(focus).focus();
   void showPasskey(view);
   if (view === 'unlocked') void showPairing();
+  if (view === 'locked') void showLockReason();
+}
+
+/** Why it is locked, so a lock never looks random: the time, and what locked it. */
+async function showLockReason(): Promise<void> {
+  const reason = await lockReason();
+  const at = reason ? new Date(reason.at) : null;
+  const today = at?.toDateString() === new Date().toDateString();
+  const time = !at ? '' : today ? at.toLocaleTimeString([], { timeStyle: 'short' }) : at.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  element('lock-reason').textContent = lockReasonText(reason, time);
+  document.body.dataset.lockReason = reason?.why ?? 'browser';
 }
 
 settingsButton.addEventListener('click', () => {
@@ -43,8 +54,8 @@ settingsButton.addEventListener('click', () => {
   window.close();
 });
 
-void autoLockMinutes().then((minutes) => {
-  element('lock-hint').textContent = `CometOTP locks itself after ${autoLockText(minutes)} without use, when the computer locks and when the browser quits.`;
+void Promise.all([autoLockMinutes(), lockWithComputer()]).then(([minutes, withComputer]) => {
+  element('lock-hint').textContent = lockHintText(minutes, withComputer, chrome.runtime.getURL('').startsWith('moz-extension:'));
 });
 
 // Once paired, the codes; before, pairing, which happens in a tab of its own: it stays open while

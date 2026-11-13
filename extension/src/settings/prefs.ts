@@ -1,11 +1,13 @@
-// The extension's settings that are not secret: how soon it locks itself, and the name it gives
-// the phone when pairing. They are kept outside the local key, as the background needs the first
-// while locked, and the name is the phone's to see anyway.
+// The extension's settings that are not secret: how soon it locks itself, whether it locks when
+// the computer locks, and the name it gives the phone when pairing. They are kept outside the
+// local key, as the background needs the first two while locked, and the name is the phone's to
+// see anyway.
 import { deleteRecord, getRecord, putRecord } from '../lock/storage.js';
 import { thisBrowser } from '../pair/browser-name.js';
 import { AUTO_LOCK_CHOICES, AUTO_LOCK_DEFAULT, nameProblem } from './choices.js';
 
 const AUTO_LOCK = 'auto-lock';
+const LOCK_WITH_COMPUTER = 'lock-with-computer';
 const NAME = 'browser-name';
 
 export async function autoLockMinutes(): Promise<number> {
@@ -17,6 +19,16 @@ export async function setAutoLockMinutes(minutes: number): Promise<void> {
   if (!AUTO_LOCK_CHOICES.includes(minutes)) throw new RangeError(`Not a choice: ${minutes} minutes`);
   if (minutes === AUTO_LOCK_DEFAULT) await deleteRecord(AUTO_LOCK);
   else await putRecord(AUTO_LOCK, minutes);
+}
+
+/** Whether the extension locks when the computer locks; on unless turned off. */
+export async function lockWithComputer(): Promise<boolean> {
+  return (await getRecord(LOCK_WITH_COMPUTER)) !== false;
+}
+
+export async function setLockWithComputer(on: boolean): Promise<void> {
+  if (on) await deleteRecord(LOCK_WITH_COMPUTER);
+  else await putRecord(LOCK_WITH_COMPUTER, false);
 }
 
 /** The name the phone is given when pairing: the person's, or one such as "Chrome on macOS". */

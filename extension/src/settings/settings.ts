@@ -15,8 +15,8 @@ import { chosenRelay, pairingRecord, vaultSecret } from '../sync/store.js';
 import { disconnect, services } from '../sync/sync.js';
 import { thisBrowser } from '../pair/browser-name.js';
 import { browserAllowsUsage, report, requestBrowserUsage, turnUsageOff, turnUsageOn, usageOffered, usageOn } from '../usage/usage.js';
-import { AUTO_LOCK_CHOICES, autoLockText, nameProblem } from './choices.js';
-import { autoLockMinutes, pairingName, setAutoLockMinutes, setPairingName } from './prefs.js';
+import { AUTO_LOCK_CHOICES, autoLockText, lockAlsoText, nameProblem } from './choices.js';
+import { autoLockMinutes, lockWithComputer, pairingName, setAutoLockMinutes, setLockWithComputer, setPairingName } from './prefs.js';
 import { FIRST_SITES, findSites, firstSites, siteCount, siteServices, withoutSite, type SiteKind, type SiteService } from './site-list.js';
 import { checkedState, startState, updateText, type UpdateState } from './update.js';
 
@@ -139,11 +139,27 @@ for (const minutes of AUTO_LOCK_CHOICES) {
   autoLock.append(option);
 }
 
+// Whether the computer locking locks CometOTP too. Firefox does not tell extensions when the
+// computer locks, so there is nothing to choose there.
+const lockWithComputerRow = element('lock-with-computer-row');
+const lockWithComputerBox = element<HTMLInputElement>('lock-with-computer');
+const lockAlso = element('lock-also');
+const firefox = chrome.runtime.getURL('').startsWith('moz-extension:');
+
 async function showAutoLock(): Promise<void> {
   const minutes = await autoLockMinutes();
   autoLock.value = String(minutes);
   document.body.dataset.autoLock = String(minutes);
+  const withComputer = await lockWithComputer();
+  lockWithComputerRow.hidden = firefox;
+  lockWithComputerBox.checked = withComputer;
+  lockAlso.textContent = lockAlsoText(withComputer, firefox);
+  document.body.dataset.lockWithComputer = firefox ? 'unavailable' : withComputer ? 'on' : 'off';
 }
+
+lockWithComputerBox.addEventListener('change', () => {
+  void setLockWithComputer(lockWithComputerBox.checked).then(() => showAutoLock());
+});
 
 autoLock.addEventListener('change', () => {
   const minutes = Number(autoLock.value);
